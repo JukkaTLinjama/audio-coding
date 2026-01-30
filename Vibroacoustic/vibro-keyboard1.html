@@ -8,10 +8,10 @@
     <style>
         :root {
             --gap: 10px;
-            --white-h: 220px;
-            --black-h: 140px;
+            --white-h: 110px;
+            --black-h: 70px;
             --white-w: 1fr;
-            --radius: 14px;
+            --radius: 12px;
         }
 
         body {
@@ -107,13 +107,12 @@
             opacity: 0.85;
         }
 
-        .piano {
+        .piano {                    /* 8 white keys => A0..A1 inclusive */
             position: relative;
             width: 100%;
             height: var(--white-h);
-            display: grid;
-            grid-template-columns: repeat(7, var(--white-w));
-            /* A B C D E F G */
+            display: grid;       
+            grid-template-columns: repeat(8, var(--white-w)); /* A B C D E F G A */
             gap: 0;
             border: 1px solid #ddd;
             border-radius: var(--radius);
@@ -144,15 +143,22 @@
             background: linear-gradient(#f1f1f1, #e6e6e6);
         }
 
-        .whiteKey .label {
+        .whiteKey .footer {
             position: absolute;
-            left: 8px;
-            bottom: 10px;
-            font-size: 12px;
-            opacity: 0.8;
-            line-height: 1.1;
-            text-align: left;
+            left: 0;
+            right: 0;
+            bottom: 8px;              /* keep inside the key so it won't be clipped */
+            text-align: center;
+            font-size: 11px;
+            opacity: 0.85;
             pointer-events: none;
+            line-height: 1.05;
+        }
+        .whiteKey .footer .hz {
+            display: block;
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 2px;
         }
 
         .whiteKey .hz {
@@ -166,7 +172,7 @@
         .blackKey {
             position: absolute;
             top: 0;
-            width: calc(100% / 7 * 0.4);
+            width: calc(100% / 8 * 0.4);
             height: var(--black-h);
             background: linear-gradient(#3a3a3a, #111);
             border: 1px solid #000;
@@ -183,13 +189,13 @@
 
         .blackKey .label {
             position: absolute;
-            left: 8px;
-            bottom: 10px;
+            left: 6px;
+            top: 6px;            /* ennen: bottom */
+            bottom: auto;
             color: #fff;
-            font-size: 11px;
+            font-size: 10px;
             opacity: 0.9;
             line-height: 1.1;
-            pointer-events: none;
         }
 
         .blackKey .hz {
@@ -206,12 +212,6 @@
             opacity: 0.75;
         }
 
-        @media (max-width: 360px){
-        .keybed{ width: 385px; } /* 7 * 55px */
-        .whiteKey{ width:55px; }
-        .blackKey{ width:32px; }
-        }
-
     </style>
 </head>
 
@@ -225,14 +225,14 @@
         </div>
 
         <div class="control">
-            <label for="masterVol">Master Volume (0–0.2)</label>
-            <input id="masterVol" type="range" min="0" max="0.2" step="0.001" value="0.06" />
+            <label for="masterVol">Master Volume (0–1.0)</label>
+            <input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.3" />
             <span class="val" id="masterVal"></span>
         </div>
 
         <div class="control">
             <label for="beatHz">L/R Beat Offset (Hz)</label>
-            <input id="beatHz" type="range" min="0" max="1" step="0.01" value="0.25" />
+            <input id="beatHz" type="range" min="0" max="5" step="0.1" value="0.5" />
             <span class="val" id="beatVal"></span>
         </div>
 
@@ -245,7 +245,7 @@
 
     <div class="row kbdWrap">
         <div class="kbdTitle">
-            <div><strong>One Octave:</strong> A0–G1 (+ accidentals)</div>
+        <div><strong>Range:</strong> A0–A1 (13 keys, + accidentals)</div>
             <div><strong>Sound:</strong> sine L/R, fR = fL + beat</div>
         </div>
 
@@ -426,7 +426,8 @@
             { note: "D1", n: 5 },
             { note: "E1", n: 7 },
             { note: "F1", n: 8 },
-            { note: "G1", n: 10 }
+            { note: "G1", n: 10 },
+            { note: "A1", n: 12 }
         ];
 
         // Black keys positions (between whites): A# C# D# F# G#
@@ -438,6 +439,9 @@
             { note: "F#1", n: 9, leftWhiteIndex: 5 },
             { note: "G#1", n: 11, leftWhiteIndex: 6 }
         ];
+
+    let resizeBound = false;
+    let resizeRaf = 0;
 
         function buildPiano() {
             const piano = document.getElementById("piano");
@@ -453,10 +457,10 @@
                 btn.dataset.hz = String(hz);
                 btn.dataset.note = wk.note;
 
-                const label = document.createElement("div");
-                label.className = "label";
-                label.innerHTML = `<span>${wk.note}</span><span class="hz">${hz.toFixed(2)} Hz</span>`;
-                btn.appendChild(label);
+                const footer = document.createElement("div");
+                footer.className = "footer";
+                footer.innerHTML = `<span>${wk.note}</span><span class="hz">${hz.toFixed(2)} Hz</span>`;
+                btn.appendChild(footer);
 
                 attachKeyHandlers(btn, hz);
 
@@ -467,7 +471,7 @@
             // Compute width per white key based on container width (after layout).
             requestAnimationFrame(() => {
                 const rect = piano.getBoundingClientRect();
-                const whiteW = rect.width / 7;
+                const whiteW = rect.width / 8;
 
                 // Mustan koskettimen leveys suhteessa whiteW:hen.
                 // Pidä tämä linjassa CSS:n 0.48 kanssa.
@@ -484,10 +488,13 @@
 
                     // Center black key between two white keys:
                     // boundary at (leftWhiteIndex + 1) * whiteW, then shift left by half black width.
-                    const left = (bk.leftWhiteIndex + 1) * whiteW - (blackW / 2);
+                    // Clamp black-key x so it never overflows the piano container
+                    let left = (bk.leftWhiteIndex + 1) * whiteW - (blackW / 2);
+                    left = Math.max(0, Math.min(left, rect.width - blackW));
 
                     btn.style.left = `${left}px`;
-                    btn.style.width = `${blackW}px`; // override CSS width reliably
+                    btn.style.width = `${blackW}px`;
+
 
                     const label = document.createElement("div");
                     label.className = "label";
@@ -500,7 +507,13 @@
             });
 
             // Rebuild on resize to keep black-key positions accurate
-            window.addEventListener("resize", () => buildPiano(), { passive: true });
+            if (!resizeBound) {
+                resizeBound = true;
+                window.addEventListener("resize", () => {
+                    cancelAnimationFrame(resizeRaf);
+                    resizeRaf = requestAnimationFrame(() => buildPiano());
+                }, { passive: true });
+            }
         }
 
         // Pointer tracking: allow "slide to another key" by moving finger
