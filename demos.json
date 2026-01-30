@@ -5,6 +5,7 @@
             "id": "vibro-keyboard",
             "title": "Vibroacoustic keyboard",
             "path": "./Vibroacoustic/vibro-keyboard1.html",
+            "thumb": "/assets/vibro-keyboard.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception.",
             "tags": [
