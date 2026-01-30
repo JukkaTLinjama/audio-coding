@@ -61,21 +61,45 @@
 
 </head>
 
+<script>
+    async function loadDemos() {
+        const res = await fetch('./demos.json');
+        if (!res.ok) {
+            console.error('Failed to load demos.json');
+            return;
+        }
+
+        const data = await res.json();
+        const list = document.getElementById('demo-list');
+
+        const ul = document.createElement('ul');
+        ul.className = 'demo-list';
+
+        data.demos.forEach(demo => {
+            const li = document.createElement('li');
+            li.className = 'demo-card';
+
+            li.innerHTML = `
+      <a href="${demo.path}" target="_blank">${demo.title}</a>
+      <div class="demo-desc">
+        <strong>${demo.status}</strong><br>
+        ${demo.description}
+      </div>
+    `;
+
+            ul.appendChild(li);
+        });
+
+        list.appendChild(ul);
+    }
+
+    loadDemos();
+</script>
+
 <body>
     <h1>Audio Coding 2026</h1>
 
-<ul class="demo-list">
-    <li class="demo-card">
-        <a href="./Vibroacoustic/vibro-keyboard1.html" target="_blank">
-            Vibroacoustic keyboard
-        </a>
-        <div class="demo-desc">
-            Experimental vibroacoustic keyboard.
-            Tests low-frequency tones, beating and tactile perception.
-            Single-file HTML demo.
-        </div>
-    </li>
-</ul>
+<div id="demo-list"></div>
 
 </body>
 

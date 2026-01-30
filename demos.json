@@ -1,0 +1,17 @@
+{
+    "title": "Audio Coding Demos",
+    "demos": [
+        {
+            "id": "vibro-keyboard",
+            "title": "Vibroacoustic keyboard",
+            "path": "./Vibroacoustic/vibro-keyboard1.html",
+            "status": "WIP",
+            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception.",
+            "tags": [
+                "vibro",
+                "lf",
+                "web-audio"
+            ]
+        }
+    ]
+}
