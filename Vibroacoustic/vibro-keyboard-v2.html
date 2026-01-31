@@ -225,7 +225,7 @@
 </head>
 
 <body>
-    <h1>Vibro L/R Beat Keyboard v2</h1>
+    <h1>Vibro L/R Beat Keyboard v2.1</h1>
 
     <div class="row controls">
         <div class="btns">
@@ -240,7 +240,7 @@
         </div>
 
         <div class="control">
-            <label for="beatHz">L/R Beat Offset (Hz)</label>
+            <label for="beatHz">L/R Beat Δf (Hz) — split ±Δf/2</label>
             <input id="beatHz" type="range" min="0" max="5" step="0.1" value="0.5" />
             <span class="val" id="beatVal"></span>
         </div>
@@ -270,7 +270,7 @@
     <div class="row kbdWrap">
         <div class="kbdTitle">
         <div><strong>Range:</strong> A0–A1 (13 keys, + accidentals)</div>
-        <div><strong>Sound:</strong> sine L/R (Beat: fR=fL+Δf, Phase: fR=fL + delay)</div>
+        <div><strong>Sound:</strong> sine L/R, fL = f − Δf/2, fR = f + Δf/2</div>
         </div>
 
         <div id="piano" class="piano" aria-label="Virtual piano keyboard"></div>
@@ -337,10 +337,23 @@
                 updatePhaseDelay(glide);
             } else {
                 // Beat mode: frequency offset creates the beat (Δf), delay is zero.
-                const fR = state.baseHz + state.beatHz;
+                // Beat mode (symmetric): keep center frequency at baseHz, split Δf equally to L/R.
+                // This avoids shifting the perceived/tactile "carrier" upward when beatHz increases.
+                const half = state.beatHz * 0.5;
 
-                setParamSmooth(oscL.frequency, fL, g);
-                setParamSmooth(oscR.frequency, fR, g);
+                let fLeft = state.baseHz - half;
+                let fRight = state.baseHz + half;
+
+                // Safety: avoid zero/negative frequencies (can happen if baseHz < beatHz/2).
+                fLeft = Math.max(0.001, fLeft);
+
+                setParamSmooth(oscL.frequency, fLeft, g);
+                setParamSmooth(oscR.frequency, fRight, g);
+
+                if (delayR) {
+                    // Keep delay off in beat mode
+                    delayR.delayTime.setValueAtTime(0, now());
+                }
 
                 if (delayR) {
                     // Keep delay off in beat mode
@@ -446,6 +459,10 @@
 
         function setBaseHz(hz) {
             state.baseHz = hz; // no clamp
+
+            // Update UI readouts when the base frequency changes (key press).
+            if (typeof window.refreshLabels === "function") window.refreshLabels();
+
             if (state.running) updateFrequencies(true);
         }
 
@@ -464,15 +481,18 @@
 
             function refreshLabels() {
                 $("masterVal").textContent = `${Number(state.masterVol).toFixed(3)}`;
-                $("beatVal").textContent = `${Number(state.beatHz).toFixed(2)}`;
-                $("glideVal").textContent = `${Number(state.glideS).toFixed(2)}`;
-                 $("modeVal").textContent = state.lrMode === "phase" ? "Phase" : "Beat";
-                $("phaseVal").textContent = `${Number(state.phaseDeg).toFixed(0)}°`;
 
-                // Enable only relevant control for the selected mode
-                beatHz.disabled = (state.lrMode === "phase");
-                phaseDeg.disabled = (state.lrMode !== "phase");
+                // Symmetric beat readout: show Δf plus the implied L/R frequencies around baseHz.
+                const df = Number(state.beatHz);
+                const half = df * 0.5;
+                const fL = Math.max(0.001, state.baseHz - half);
+                const fR = state.baseHz + half;
+
+                $("beatVal").textContent = `Δf ${df.toFixed(2)}  |  L ${fL.toFixed(2)} Hz  R ${fR.toFixed(2)} Hz`;
+                $("glideVal").textContent = `${Number(state.glideS).toFixed(2)}`;
             }
+            // Expose readout refresh for non-UI callers (e.g., setBaseHz on key press).
+            window.refreshLabels = refreshLabels;
 
             masterVol.addEventListener("input", () => {
                 state.masterVol = Number(masterVol.value);
