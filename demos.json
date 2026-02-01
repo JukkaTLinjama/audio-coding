@@ -13,6 +13,19 @@
                 "lf",
                 "web-audio"
             ]
+        },
+        {
+            "id": "vibro-keyboard-2",
+            "title": "Vibroacoustic keyboard 2.2",
+            "path": "./Vibroacoustic/vibro-keyboard-v2.html",
+            "thumb": "/assets/vibro-keyboard.png",
+            "status": "WIP",
+            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping functionality.",
+            "tags": [
+                "vibro",
+                "lf",
+                "web-audio"
+            ]
         }
     ]
 }

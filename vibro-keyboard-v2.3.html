@@ -93,6 +93,37 @@
             border-bottom-width: 2px;
         }
 
+        /* --- Loop status badge --- */
+        .status {
+            align-self: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid #d0d0d0;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            user-select: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.35; }
+            100% { opacity: 1; }
+        }
+
+        .status.idle { background: #f6f6f6; color: #333; }
+        .status.rec  { background: #ffe9e9; color: #8a0000; border-color: #f2b3b3; animation: pulse 1s infinite; }
+        .status.loop { background: #e9f2ff; color: #003a8a; border-color: #b3ccf2; }
+
+        /* --- Disabled control (mode-dependent) --- */
+        .control.disabled {
+            opacity: 0.35;
+        }
+        .control.disabled input,
+        .control.disabled select {
+            pointer-events: none;
+        }
+
+
         /* --- Piano keyboard --- */
         .kbdWrap {
             margin-top: 14px;
@@ -225,17 +256,19 @@
 </head>
 
 <body>
-    <h1>Vibro L/R Beat Keyboard v2.2</h1>
+    <h1>Vibro L/R Beat Keyboard v2.3</h1>
 
     <div class="row controls">
         <div class="btns">
-            <button id="startBtn" type="button">Rec loop</button>
+            <button id="startBtn" type="button">Start</button>
+            <button id="playBtn" type="button">Play</button>
             <button id="stopBtn" type="button">Stop</button>
+            <span id="loopStatus" class="status idle" aria-live="polite">IDLE</span>
         </div>
 
         <div class="control">
             <label for="masterVol">Master Volume (0–1.0)</label>
-            <input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.3" />
+            <input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.4" />
             <span class="val" id="masterVal"></span>
         </div>
 
@@ -446,8 +479,6 @@
 
         function stop() {
             if (!state.running) return;
-            // EN: Ensure loop timers are cleared when stopping the audio context.
-            stopLoopPlayback(/*clearLoop=*/false);
 
             const t0 = now();
             oscL.stop(t0);
@@ -467,97 +498,126 @@
 
             if (state.running) updateFrequencies(true);
         }
-    // ---------- Loop recorder / player ----------
-        const LOOP_SILENCE_SEC = 1.0;
+
+
+        // ---------- Loop recorder / player (manual toggle) ----------
+        const LOOP_TAIL_SEC = 1.0;
 
         const loopState = {
             isRecording: false,
             isLooping: false,
 
             recordStartTime: 0,
-            lastEventAbsTime: 0,
-
-            finalizeTimerId: null,
-            cycleTimerId: null,
 
             // Events are relative to recordStartTime:
             // { t: seconds, type: 'gateOn'|'gateOff'|'setHz', hz?: number }
             events: [],
-            loopDuration: 0
+            loopDuration: 0,
+            hasLoop: false,
+
+            cycleTimerId: null,
+            eventTimerIds: []
         };
 
-        function clearLoopTimers() {
-            if (loopState.finalizeTimerId) {
-                window.clearTimeout(loopState.finalizeTimerId);
-                loopState.finalizeTimerId = null;
+        function setLoopStatus(mode) {
+            // EN: Minimal UI indicator for loop state (idle / recording / looping).
+            const el = document.getElementById("loopStatus");
+            if (!el) return;
+
+            el.classList.remove("idle", "rec", "loop");
+
+            if (mode === "rec") {
+                el.textContent = "REC…";
+                el.classList.add("rec");
+            } else if (mode === "loop") {
+                el.textContent = "LOOPING";
+                el.classList.add("loop");
+            } else {
+                el.textContent = "IDLE";
+                el.classList.add("idle");
             }
+        }
+
+        function clearLoopTimers() {
             if (loopState.cycleTimerId) {
                 window.clearTimeout(loopState.cycleTimerId);
                 loopState.cycleTimerId = null;
             }
+            // EN: Cancel per-event timeouts scheduled within the cycle.
+            for (const id of loopState.eventTimerIds) window.clearTimeout(id);
+            loopState.eventTimerIds = [];
         }
 
         function recordEvent(ev) {
             // EN: Record only while explicitly recording and audio context exists.
             if (!loopState.isRecording || !ctx) return;
 
-            const tAbs = ctx.currentTime;
-            const tRel = tAbs - loopState.recordStartTime;
-
-            loopState.events.push({ ...ev, t: tRel });
-            loopState.lastEventAbsTime = tAbs;
-
-            armFinalizeTimer();
-        }
-
-        function armFinalizeTimer() {
-            // EN: Finalize when no new events arrive within LOOP_SILENCE_SEC.
-            if (loopState.finalizeTimerId) window.clearTimeout(loopState.finalizeTimerId);
-
-            loopState.finalizeTimerId = window.setTimeout(() => {
-                tryFinalizeLoop();
-            }, LOOP_SILENCE_SEC * 1000);
+            const t = ctx.currentTime - loopState.recordStartTime;
+            loopState.events.push({ ...ev, t });
         }
 
         function startRecordingLoop() {
-            // Stop current loop playback (do not necessarily stop audio).
-            stopLoopPlayback(/*clearLoop=*/true);
+            // EN: Begin a new recording (replaces any existing loop).
+            stopLoopPlayback();
+            loopState.hasLoop = false;
 
             loopState.isRecording = true;
-            loopState.isLooping = false;
-
             loopState.events = [];
             loopState.loopDuration = 0;
 
-            // EN: Use AudioContext time as a stable reference for timing.
             loopState.recordStartTime = ctx ? ctx.currentTime : 0;
-            loopState.lastEventAbsTime = loopState.recordStartTime;
 
-            armFinalizeTimer();
+            setLoopStatus("rec");
         }
 
-        function tryFinalizeLoop() {
-            loopState.finalizeTimerId = null;
+        function cancelRecordingLoop() {
+            // EN: Abort recording and discard what was captured.
+            loopState.isRecording = false;
+            loopState.events = [];
+            loopState.loopDuration = 0;
+            loopState.hasLoop = false;
 
+            setGate(false);
+            setLoopStatus("idle");
+        }
+
+        function finalizeRecordingLoop() {
+            // EN: Stop recording and compute loop duration with a fixed tail silence.
             if (!loopState.isRecording) return;
+
             loopState.isRecording = false;
 
-            if (!loopState.events.length) return;
+            if (!loopState.events.length) {
+                setLoopStatus("idle");
+                return;
+            }
+
+            // EN: Ensure phrase ends with gateOff so playback won't get stuck ON.
+            const last = loopState.events[loopState.events.length - 1];
+            if (last.type !== "gateOff") {
+                const t = ctx ? (ctx.currentTime - loopState.recordStartTime) : last.t;
+                loopState.events.push({ t, type: "gateOff" });
+            }
+
+            // EN: Always silence immediately at finalize time.
+            setGate(false);
 
             const lastT = loopState.events[loopState.events.length - 1].t;
-            // EN: Always add 1s tail silence to make loop playback feel natural.
-            loopState.loopDuration = lastT + LOOP_SILENCE_SEC;
+            loopState.loopDuration = lastT + LOOP_TAIL_SEC;
+            loopState.hasLoop = true;
 
-            startLoopPlayback();
+            // Not auto-playing by design; Play button starts playback.
+            setLoopStatus("idle");
         }
 
         async function startLoopPlayback() {
-            if (!loopState.loopDuration || !loopState.events.length) return;
+            // EN: Play the recorded loop (if any) until Stop is pressed.
+            if (!loopState.hasLoop || !loopState.loopDuration || !loopState.events.length) return;
+
+            if (!state.running) await start();
 
             loopState.isLooping = true;
-
-            // Ensure audio is running for playback
-            if (!state.running) await start();
+            setLoopStatus("loop");
 
             scheduleLoopCycle();
         }
@@ -565,15 +625,15 @@
         function scheduleLoopCycle() {
             if (!loopState.isLooping) return;
 
-            const cycleStartAbs = ctx.currentTime;
+            clearLoopTimers();
 
             // EN: Reset gate at cycle start to avoid stuck sound between cycles.
             setGate(false);
 
             for (const ev of loopState.events) {
-                const delayMs = Math.max(0, (ev.t) * 1000);
+                const delayMs = Math.max(0, ev.t * 1000);
 
-                window.setTimeout(() => {
+                const id = window.setTimeout(() => {
                     if (!loopState.isLooping) return;
 
                     if (ev.type === "gateOn") {
@@ -583,30 +643,28 @@
                         if (Number.isFinite(ev.hz)) setBaseHz(ev.hz);
                     } else if (ev.type === "gateOff") {
                         setGate(false);
+
+                // EN: Record note end.
+                recordEvent({ type: "gateOff" });
                     }
                 }, delayMs);
+
+                loopState.eventTimerIds.push(id);
             }
 
-            // Schedule next cycle
             const cycleMs = Math.max(0, loopState.loopDuration * 1000);
             loopState.cycleTimerId = window.setTimeout(() => {
                 scheduleLoopCycle();
             }, cycleMs);
         }
 
-        function stopLoopPlayback(clearLoop = false) {
-            loopState.isRecording = false;
+        function stopLoopPlayback() {
+            // EN: Stop loop playback; keep the recorded loop for later Play.
             loopState.isLooping = false;
-
             clearLoopTimers();
 
-            if (clearLoop) {
-                loopState.events = [];
-                loopState.loopDuration = 0;
-            }
-
-            // EN: Always silence output when stopping loop.
             setGate(false);
+            setLoopStatus(loopState.isRecording ? "rec" : "idle");
         }
 
         // ---------- UI bindings ----------
@@ -620,6 +678,7 @@
             const phaseDeg = $("phaseDeg");
             // Initialize UI from state
             lrMode.value = state.lrMode;
+            beatHz.value = String(state.beatHz);
             phaseDeg.value = String(state.phaseDeg);
 
             function refreshLabels() {
@@ -633,6 +692,33 @@
 
                 $("beatVal").textContent = `Δf ${df.toFixed(2)}  |  L ${fL.toFixed(2)} Hz  R ${fR.toFixed(2)} Hz`;
                 $("glideVal").textContent = `${Number(state.glideS).toFixed(2)}`;
+
+                // Mode readout
+                $("modeVal").textContent = state.lrMode === "phase" ? "Phase" : "Beat";
+
+                // Phase readout: show degrees and equivalent delay at current baseHz
+                const f0 = Math.max(1e-6, state.baseHz);
+                const phaseNorm = ((Number(state.phaseDeg) % 360) + 360) % 360;
+                const delayMs = (phaseNorm / 360) * (1000 / f0);
+                $("phaseVal").textContent = `${phaseNorm.toFixed(0)}°  |  ${delayMs.toFixed(2)} ms @ ${f0.toFixed(2)} Hz`;
+
+                // EN: Grey out irrelevant control depending on mode.
+                const beatCtrl = $("beatHz").closest(".control");
+                const phaseCtrl = $("phaseDeg").closest(".control");
+
+                if (state.lrMode === "phase") {
+                    beatHz.disabled = true;
+                    phaseDeg.disabled = false;
+                    if (beatCtrl) beatCtrl.classList.add("disabled");
+                    if (phaseCtrl) phaseCtrl.classList.remove("disabled");
+                } else {
+                    beatHz.disabled = false;
+                    phaseDeg.disabled = true;
+                    if (beatCtrl) beatCtrl.classList.remove("disabled");
+                    if (phaseCtrl) phaseCtrl.classList.add("disabled");
+                }
+
+
             }
             // Expose readout refresh for non-UI callers (e.g., setBaseHz on key press).
             window.refreshLabels = refreshLabels;
@@ -660,7 +746,18 @@
                 // When switching to phase mode, force Δf = 0 frequency-wise
                 refreshLabels();
                 if (state.running) updateFrequencies(true);
-            });
+            
+                if (state.running) {
+                    // EN: Keep phase delay consistent with current mode.
+                    if (state.lrMode === "phase") {
+                        updatePhaseDelay(true);
+                    } else {
+                        // Beat mode: no extra delay on right channel.
+                        updatePhaseDelay(false);
+                        if (delayR) delayR.delayTime.setValueAtTime(0, now());
+                    }
+                }
+});
 
             phaseDeg.addEventListener("input", () => {
                 state.phaseDeg = Number(phaseDeg.value);
@@ -672,18 +769,28 @@
             });
 
             $("startBtn").addEventListener("click", async () => {
-                // EN: Rec loop starts audio if needed, then records key events until 1s silence.
+                // EN: Rec loop toggles recording on/off (manual stop by pressing again).
                 if (!state.running) await start();
-                startRecordingLoop();
+
+                if (!loopState.isRecording) {
+                    startRecordingLoop();
+                } else {
+                    finalizeRecordingLoop();
+                }
+            });
+
+            $("playBtn").addEventListener("click", () => {
+                // EN: Play the most recently recorded loop (if available).
+                startLoopPlayback();
             });
 
             $("stopBtn").addEventListener("click", () => {
-                // EN: Stop cancels recording/looping AND stops audio engine.
-                stopLoopPlayback(/*clearLoop=*/false);
+                // EN: Stop loop playback; if recording, cancel and discard recording.
+                if (loopState.isRecording) cancelRecordingLoop();
+                stopLoopPlayback();
                 stop();
             });
-
-            refreshLabels();
+refreshLabels();
         }
 
         bindUI();
@@ -812,7 +919,8 @@
 
                 setBaseHz(hz);
                 setGate(true);
-                                // EN: Record note start.
+
+                // EN: Record note start.
                 recordEvent({ type: "gateOn", hz });
 
                 try { el.setPointerCapture(e.pointerId); } catch (_) { }
@@ -827,7 +935,8 @@
                 activePointerId = null;
 
                 setGate(false);
-                                // EN: Record note end.
+
+                // EN: Record note end.
                 recordEvent({ type: "gateOff" });
             };
 
@@ -855,7 +964,8 @@
                 activeEl.classList.add("active");
 
                 setBaseHz(newHz); // glide happens here
-                                // EN: Record pitch change while gate is held (monophonic slide).
+
+                // EN: Record pitch change while gate is held (monophonic slide).
                 recordEvent({ type: "setHz", hz: newHz });
             };
 
