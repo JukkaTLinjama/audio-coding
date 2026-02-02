@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>Vibro L/R Beat Keyboard v2)</title>
+    <style>
+        :root {
+            --gap: 10px;
+            --white-h: 110px;
+            --black-h: 70px;
+            --white-w: 1fr;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: #fafafa;
+            color: #111;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0 0 10px 0;
+            font-weight: 650;
+        }
+
+        .row {
+            margin: 12px 0;
+        }
+
+        .controls {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            background: #fff;
+            border: 1px solid #e6e6e6;
+            border-radius: 12px;
+        }
+
+        .control {
+            display: grid;
+            grid-template-columns: 160px 1fr auto;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .control input[type="range"] {
+            width: 100%;
+        }
+
+        .control select {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid #d0d0d0;
+            background: #fff;
+            font-size: 14px;
+        }
+
+        .val {
+            font-variant-numeric: tabular-nums;
+            font-size: 13px;
+            opacity: 0.85;
+            min-width: 70px;
+            text-align: right;
+        }
+
+        .btns {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-bottom-width: 3px;
+            border-radius: 12px;
+            background: #fff;
+            font-size: 14px;
+        }
+
+        button:active {
+            transform: translateY(1px);
+            border-bottom-width: 2px;
+        }
+
+        /* --- Loop status badge --- */
+        .status {
+            align-self: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid #d0d0d0;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            user-select: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.35; }
+            100% { opacity: 1; }
+        }
+
+        .status.idle { background: #f6f6f6; color: #333; }
+        .status.rec  { background: #ffe9e9; color: #8a0000; border-color: #f2b3b3; animation: pulse 1s infinite; }
+        .status.loop { background: #e9f2ff; color: #003a8a; border-color: #b3ccf2; }
+
+        /* --- Disabled control (mode-dependent) --- */
+        .control.disabled {
+            opacity: 0.35;
+        }
+        .control.disabled input,
+        .control.disabled select {
+            pointer-events: none;
+        }
+
+
+        /* --- Piano keyboard --- */
+        .kbdWrap {
+            margin-top: 14px;
+            padding: 14px;
+            background: #fff;
+            border: 1px solid #e6e6e6;
+            border-radius: 12px;
+            overflow: hidden;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .kbdTitle {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: baseline;
+            margin-bottom: 10px;
+            font-size: 13px;
+            opacity: 0.85;
+        }
+
+        .piano {                    /* 8 white keys => A0..A1 inclusive */
+            position: relative;
+            width: 100%;
+            height: var(--white-h);
+            display: grid;       
+            grid-template-columns: repeat(8, var(--white-w)); /* A B C D E F G A */
+            gap: 0;
+            border: 1px solid #ddd;
+            border-radius: var(--radius);
+            background: #f2f2f2;
+            overflow: hidden;
+        }
+
+        .whiteKey {
+            position: relative;
+            border-right: 1px solid #ddd;
+            background: linear-gradient(#ffffff, #f1f1f1);
+            height: var(--white-h);
+            padding: 0;
+            margin: 0;
+            border-radius: 0;
+            border-left: none;
+            border-top: none;
+            border-bottom: none;
+            border-right: 1px solid #ddd;
+            touch-action: none;
+        }
+
+        .whiteKey:last-child {
+            border-right: none;
+        }
+
+        .whiteKey.active {
+            background: linear-gradient(#f1f1f1, #e6e6e6);
+        }
+
+        .whiteKey .footer {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 8px;              /* keep inside the key so it won't be clipped */
+            text-align: center;
+            font-size: 11px;
+            opacity: 0.85;
+            pointer-events: none;
+            line-height: 1.05;
+        }
+        .whiteKey .footer .hz {
+            display: block;
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        .whiteKey .hz {
+            display: block;
+            font-variant-numeric: tabular-nums;
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .blackKey {
+            position: absolute;
+            top: 0;
+            width: calc(100% / 8 * 0.4);
+            height: var(--black-h);
+            background: linear-gradient(#3a3a3a, #111);
+            border: 1px solid #000;
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            z-index: 10;
+            padding: 0;
+            touch-action: none;
+        }
+
+        .blackKey.active {
+            background: linear-gradient(#2a2a2a, #000);
+        }
+
+        .blackKey .label {
+            position: absolute;
+            left: 6px;
+            top: 6px;            /* ennen: bottom */
+            bottom: auto;
+            color: #fff;
+            font-size: 10px;
+            opacity: 0.9;
+            line-height: 1.1;
+        }
+
+        .blackKey .hz {
+            display: block;
+            font-variant-numeric: tabular-nums;
+            font-size: 10px;
+            opacity: 0.75;
+            margin-top: 3px;
+        }
+
+        .hint {
+            margin-top: 10px;
+            font-size: 12px;
+            opacity: 0.75;
+        }
+
+    </style>
+</head>
+
+<body>
+    <h1>Vibro L/R Beat Keyboard v2.4</h1>
+
+    <div class="row controls">
+        <div class="btns">
+            <button id="startBtn" type="button">Start/Stop loop Rec</button>
+            <button id="playBtn" type="button">Play</button>
+            <button id="stopBtn" type="button">Stop</button>
+            <span id="loopStatus" class="status idle" aria-live="polite">IDLE</span>
+        </div>
+
+        <div class="control">
+            <label for="masterVol">Master Volume (0–1.0)</label>
+            <input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.4" />
+            <span class="val" id="masterVal"></span>
+        </div>
+
+        <div class="control">
+            <label for="beatHz">L/R Beat Δf (Hz) — split ±Δf/2</label>
+            <input id="beatHz" type="range" min="0" max="5" step="0.1" value="0.5" />
+            <span class="val" id="beatVal"></span>
+        </div>
+
+        <div class="control">
+            <label for="lrMode">L/R Mode</label>
+            <select id="lrMode">
+                <option value="beat" selected>Beat (Δf)</option>
+                <option value="phase">Phase (deg)</option>
+            </select>
+            <span class="val" id="modeVal"></span>
+        </div>
+        
+        <div class="control">
+            <label for="phaseDeg">L/R Phase Offset (deg)</label>
+            <input id="phaseDeg" type="range" min="0" max="360" step="1" value="0" />
+            <span class="val" id="phaseVal"></span>
+        </div>
+
+        <div class="control">
+            <label for="glideS">Glide (s)</label>
+            <input id="glideS" type="range" min="0" max="5" step="0.05" value="2.0" />
+            <span class="val" id="glideVal"></span>
+        </div>
+    </div>
+
+    <div class="row kbdWrap">
+        <div class="kbdTitle">
+        <div><strong>Range:</strong> A0–A1 (13 keys, + accidentals)</div>
+        <div><strong>Sound:</strong> sine L/R, fL = f − Δf/2, fR = f + Δf/2</div>
+        </div>
+
+        <div id="piano" class="piano" aria-label="Virtual piano keyboard"></div>
+
+        <div class="hint">
+            Touch/hold a key to play. Slide to another key for glides. Output is intentionally low-frequency; keep
+            volume conservative.
+        </div>
+    </div>
+
+    <script>
+        // ---------- Audio state ----------
+        let ctx;
+        let oscL, oscR;
+        let gainL, gainR;
+        let merger;
+        let masterGain;
+        let gateGain;
+        let delayR; // Right channel delay for phase mode
+
+        const state = {
+            running: false,
+
+            // L/R relationship mode:
+            // - "beat": fR = fL + beatHz
+            // - "phase": fR = fL, and Right channel gets a time delay that corresponds to phaseDeg at baseHz
+            lrMode: "beat",
+
+            beatHz: 0.25,     // Hz offset used only in "beat" mode
+            phaseDeg: 0,      // degrees used only in "phase" mode
+
+            glideS: 2.0,
+            masterVol: 0.4,
+            baseHz: 27.5
+        };
+
+        // EN: Safe current-time helper (ctx may be null when stopped).
+        function now() { return ctx ? ctx.currentTime : 0; }
+
+        function setParamSmooth(param, target, glideS) {
+            const t0 = now();
+            param.cancelScheduledValues(t0);
+            param.setValueAtTime(param.value, t0);
+            param.linearRampToValueAtTime(target, t0 + Math.max(0, glideS));
+        }
+
+        /**
+         * L/R beat control:
+         * fL = baseHz
+         * fR = baseHz + beatHz
+         * Keeping the inter-channel offset constant (Hz) preserves the beat period during glides.
+         */
+        function updateFrequencies(glide = true) {
+            const g = glide ? state.glideS : 0;
+            const fL = state.baseHz;
+
+            if (state.lrMode === "phase") {
+                // Phase mode: same frequency on L/R, phase offset via delay on Right.
+                const fR = fL;
+
+                setParamSmooth(oscL.frequency, fL, g);
+                setParamSmooth(oscR.frequency, fR, g);
+
+                // Ensure beat offset is effectively disabled in this mode (frequency-wise)
+                updatePhaseDelay(glide);
+            } else {
+                // Beat mode: frequency offset creates the beat (Δf), delay is zero.
+                // Beat mode (symmetric): keep center frequency at baseHz, split Δf equally to L/R.
+                // This avoids shifting the perceived/tactile "carrier" upward when beatHz increases.
+                const half = state.beatHz * 0.5;
+
+                let fLeft = state.baseHz - half;
+                let fRight = state.baseHz + half;
+
+                // Safety: avoid zero/negative frequencies (can happen if baseHz < beatHz/2).
+                fLeft = Math.max(0.001, fLeft);
+
+                setParamSmooth(oscL.frequency, fLeft, g);
+                setParamSmooth(oscR.frequency, fRight, g);
+
+                if (delayR) {
+                    // Keep delay off in beat mode
+                    delayR.delayTime.setValueAtTime(0, now());
+                }
+            }
+        }
+
+            function updateMasterVolume() {
+            if (!masterGain) return;
+            masterGain.gain.setValueAtTime(state.masterVol, now());
+        }
+
+        function updatePhaseDelay(glide = true) {
+            if (!delayR || !ctx) return;
+
+            // Convert phase (deg) to time delay (seconds): delay = (phase/360) * period
+            // NOTE: This implements a phase *lag* on Right (not a true phase advance).
+            const f = Math.max(1e-6, state.baseHz);
+            const period = 1 / f;
+            const phaseDeg = ((state.phaseDeg % 360) + 360) % 360; // normalize
+            const delaySec = (phaseDeg / 360) * period;
+
+            const t0 = now();
+            delayR.delayTime.cancelScheduledValues(t0);
+
+            if (glide && state.glideS > 0) {
+                // Smooth delay changes to reduce clicks
+                delayR.delayTime.setValueAtTime(delayR.delayTime.value, t0);
+                delayR.delayTime.linearRampToValueAtTime(delaySec, t0 + state.glideS);
+            } else {
+                delayR.delayTime.setValueAtTime(delaySec, t0);
+            }
+        }
+
+        function setGate(on) {
+            if (!gateGain) return;
+            const t0 = now();
+            gateGain.gain.cancelScheduledValues(t0);
+            gateGain.gain.setValueAtTime(gateGain.gain.value, t0);
+            gateGain.gain.linearRampToValueAtTime(on ? 1.0 : 0.0, t0 + 0.02);
+        }
+
+        async function start() {
+            if (state.running) return;
+
+            ctx = new (window.AudioContext || window.webkitAudioContext)();
+            // Right channel delay used for phase mode.
+            // Max delay should cover one full period at the lowest frequency you use (e.g., 20 Hz => 50 ms).
+            delayR = ctx.createDelay(0.1); // 100 ms max is safe for 20–50 Hz tactile range
+            delayR.delayTime.value = 0;
+
+            oscL = ctx.createOscillator();
+            oscR = ctx.createOscillator();
+            oscL.type = "sine";
+            oscR.type = "sine";
+
+            gainL = ctx.createGain();
+            gainR = ctx.createGain();
+            gainL.gain.value = 0.9;
+            gainR.gain.value = 0.9;
+
+            merger = ctx.createChannelMerger(2);
+
+            masterGain = ctx.createGain();
+            masterGain.gain.value = state.masterVol;
+
+            gateGain = ctx.createGain();
+            gateGain.gain.value = 0.0; // off until a key is pressed
+
+            oscL.connect(gainL);
+            gainL.connect(merger, 0, 0);
+
+            oscR.connect(gainR);
+            gainR.connect(delayR);
+            delayR.connect(merger, 0, 1);
+
+            merger.connect(masterGain);
+            masterGain.connect(gateGain);
+            gateGain.connect(ctx.destination);
+
+            // Start at current base frequency without glide
+            updateFrequencies(false);
+
+            oscL.start();
+            oscR.start();
+
+            state.running = true;
+        }
+
+        function stop() {
+            if (!state.running) return;
+
+            const t0 = now();
+            oscL.stop(t0);
+            oscR.stop(t0);
+
+            ctx.close();
+
+            state.running = false;
+            ctx = null;
+        }
+
+        let onStateChanged = null; // EN: Optional callback for UI refresh.
+
+        function setBaseHz(hz) {
+            state.baseHz = hz;
+            if (typeof onStateChanged === "function") onStateChanged();
+            if (state.running) updateFrequencies(true);
+        }
+
+        // ---------- Loop recorder / player (manual toggle) ----------
+
+        const loopState = {
+            isRecording: false,
+            isLooping: false,
+
+            recordStartTime: 0,
+
+            // Events are relative to recordStartTime:
+            // { t: seconds, type: 'gateOn'|'gateOff'|'setHz', hz?: number }
+            events: [],
+            loopDuration: 0,
+            hasLoop: false,
+
+            cycleTimerId: null,
+            eventTimerIds: []
+        };
+
+        function setLoopStatus(mode) {
+            // EN: Minimal UI indicator for loop state (idle / recording / looping).
+            const el = document.getElementById("loopStatus");
+            if (!el) return;
+
+            el.classList.remove("idle", "rec", "loop");
+
+            if (mode === "rec") {
+                el.textContent = "REC…";
+                el.classList.add("rec");
+            } else if (mode === "loop") {
+                el.textContent = "LOOPING";
+                el.classList.add("loop");
+            } else {
+                el.textContent = "IDLE";
+                el.classList.add("idle");
+            }
+        }
+
+        function clearLoopTimers() {
+            if (loopState.cycleTimerId) {
+                window.clearTimeout(loopState.cycleTimerId);
+                loopState.cycleTimerId = null;
+            }
+            // EN: Cancel per-event timeouts scheduled within the cycle.
+            for (const id of loopState.eventTimerIds) window.clearTimeout(id);
+            loopState.eventTimerIds = [];
+        }
+
+        function recordEvent(ev) {
+            // EN: Record only while explicitly recording and audio context exists.
+            if (!loopState.isRecording || !ctx) return;
+
+            const t = ctx.currentTime - loopState.recordStartTime;
+            loopState.events.push({ ...ev, t });
+        }
+
+        function startRecordingLoop() {
+            // EN: Begin a new recording (replaces any existing loop).
+            stopLoopPlayback();
+            loopState.hasLoop = false;
+
+            loopState.isRecording = true;
+            loopState.events = [];
+            loopState.loopDuration = 0;
+
+            loopState.recordStartTime = ctx ? ctx.currentTime : 0;
+
+            setLoopStatus("rec");
+        }
+
+        function cancelRecordingLoop() {
+            // EN: Abort recording and discard what was captured.
+            loopState.isRecording = false;
+            loopState.events = [];
+            loopState.loopDuration = 0;
+            loopState.hasLoop = false;
+
+            setGate(false);
+            setLoopStatus("idle");
+        }
+
+        function finalizeRecordingLoop() {
+            // EN: Stop recording and compute loop duration with a fixed tail silence.
+            if (!loopState.isRecording) return;
+
+            loopState.isRecording = false;
+
+            if (!loopState.events.length) {
+                setLoopStatus("idle");
+                return;
+            }
+
+            // EN: Ensure phrase ends with gateOff so playback won't get stuck ON.
+            const last = loopState.events[loopState.events.length - 1];
+            if (last.type !== "gateOff") {
+                const t = ctx ? (ctx.currentTime - loopState.recordStartTime) : last.t;
+                loopState.events.push({ t, type: "gateOff" });
+            }
+
+            // EN: Always silence immediately at finalize time.
+            setGate(false);
+
+            const lastT = loopState.events[loopState.events.length - 1].t;
+            // EN: Loop duration ends at the last recorded event (no artificial tail).
+            loopState.loopDuration = Math.max(0, lastT);
+            loopState.hasLoop = true;
+
+            // Not auto-playing by design; Play button starts playback.
+            setLoopStatus("idle");
+        }
+
+        async function startLoopPlayback() {
+            // EN: Play the recorded loop (if any) until Stop is pressed.
+            if (!loopState.hasLoop || !loopState.loopDuration || !loopState.events.length) return;
+
+            if (!state.running) await start();
+
+            loopState.isLooping = true;
+            setLoopStatus("loop");
+
+            scheduleLoopCycle();
+        }
+
+        function scheduleLoopCycle() {
+            if (!loopState.isLooping) return;
+
+            clearLoopTimers();
+
+            // EN: Reset gate at cycle start to avoid stuck sound between cycles.
+            setGate(false);
+
+            for (const ev of loopState.events) {
+                const delayMs = Math.max(0, ev.t * 1000);
+
+                const id = window.setTimeout(() => {
+                    if (!loopState.isLooping) return;
+
+                    if (ev.type === "gateOn") {
+                        if (Number.isFinite(ev.hz)) setBaseHz(ev.hz);
+                        setGate(true);
+                    } else if (ev.type === "setHz") {
+                        if (Number.isFinite(ev.hz)) setBaseHz(ev.hz);
+                    } else if (ev.type === "gateOff") {
+                        setGate(false);
+                    }
+                }, delayMs);
+
+                loopState.eventTimerIds.push(id);
+            }
+
+            const cycleMs = Math.max(0, loopState.loopDuration * 1000);
+            loopState.cycleTimerId = window.setTimeout(() => {
+                scheduleLoopCycle();
+            }, cycleMs);
+        }
+
+        function stopLoopPlayback() {
+            // EN: Stop loop playback; keep the recorded loop for later Play.
+            loopState.isLooping = false;
+            clearLoopTimers();
+
+            setGate(false);
+            setLoopStatus(loopState.isRecording ? "rec" : "idle");
+        }
+
+        // ---------- UI bindings ----------
+        function bindUI() {
+            const $ = (id) => document.getElementById(id);
+
+            const masterVol = $("masterVol");
+            const beatHz = $("beatHz");
+            const glideS = $("glideS");
+            const lrMode = $("lrMode");
+            const phaseDeg = $("phaseDeg");
+            // Initialize UI from state
+            lrMode.value = state.lrMode;
+            beatHz.value = String(state.beatHz);
+            phaseDeg.value = String(state.phaseDeg);
+
+            function refreshLabels() {
+                $("masterVal").textContent = `${Number(state.masterVol).toFixed(3)}`;
+
+                // Symmetric beat readout: show Δf plus the implied L/R frequencies around baseHz.
+                const df = Number(state.beatHz);
+                const half = df * 0.5;
+                const fL = Math.max(0.001, state.baseHz - half);
+                const fR = state.baseHz + half;
+
+                $("beatVal").textContent = `Δf ${df.toFixed(2)}  |  L ${fL.toFixed(2)} Hz  R ${fR.toFixed(2)} Hz`;
+                $("glideVal").textContent = `${Number(state.glideS).toFixed(2)}`;
+
+                // Mode readout
+                $("modeVal").textContent = state.lrMode === "phase" ? "Phase" : "Beat";
+
+                // Phase readout: show degrees and equivalent delay at current baseHz
+                const f0 = Math.max(1e-6, state.baseHz);
+                const phaseNorm = ((Number(state.phaseDeg) % 360) + 360) % 360;
+                const delayMs = (phaseNorm / 360) * (1000 / f0);
+                $("phaseVal").textContent = `${phaseNorm.toFixed(0)}°  |  ${delayMs.toFixed(2)} ms @ ${f0.toFixed(2)} Hz`;
+
+                // EN: Grey out irrelevant control depending on mode.
+                const beatCtrl = $("beatHz").closest(".control");
+                const phaseCtrl = $("phaseDeg").closest(".control");
+
+                if (state.lrMode === "phase") {
+                    beatHz.disabled = true;
+                    phaseDeg.disabled = false;
+                    if (beatCtrl) beatCtrl.classList.add("disabled");
+                    if (phaseCtrl) phaseCtrl.classList.remove("disabled");
+                } else {
+                    beatHz.disabled = false;
+                    phaseDeg.disabled = true;
+                    if (beatCtrl) beatCtrl.classList.remove("disabled");
+                    if (phaseCtrl) phaseCtrl.classList.add("disabled");
+                }
+            }
+            // Expose readout refresh for non-UI callers (e.g., setBaseHz on key press).
+            //window.refreshLabels = refreshLabels;
+
+            masterVol.addEventListener("input", () => {
+                state.masterVol = Number(masterVol.value);
+                refreshLabels();
+                if (state.running) updateMasterVolume();
+            });
+
+            beatHz.addEventListener("input", () => {
+                state.beatHz = Number(beatHz.value);
+                refreshLabels();
+                if (state.running) updateFrequencies(true);
+            });
+
+            glideS.addEventListener("input", () => {
+                state.glideS = Number(glideS.value);
+                refreshLabels();
+            });
+
+            lrMode.addEventListener("change", () => {
+                state.lrMode = lrMode.value;
+
+                // When switching to phase mode, force Δf = 0 frequency-wise
+                refreshLabels();
+                if (state.running) updateFrequencies(true);
+            
+                if (state.running) {
+                    // EN: Keep phase delay consistent with current mode.
+                    if (state.lrMode === "phase") {
+                        updatePhaseDelay(true);
+                    } else {
+                        // Beat mode: no extra delay on right channel.
+                        updatePhaseDelay(false);
+                        if (delayR) delayR.delayTime.setValueAtTime(0, now());
+                    }
+                }
+});
+
+            phaseDeg.addEventListener("input", () => {
+                state.phaseDeg = Number(phaseDeg.value);
+                refreshLabels();
+                if (state.running) {
+                    // Only affects output in phase mode (delayR)
+                    if (state.lrMode === "phase") updatePhaseDelay(true);
+                }
+            });
+
+            $("startBtn").addEventListener("click", async () => {
+                // EN: Toggle loop recording on/off with the same button.
+                if (!state.running) await start();
+
+                if (!loopState.isRecording) {
+                    // Start recording
+                    startRecordingLoop();
+                } else {
+                    // Stop recording and finalize loop
+                    finalizeRecordingLoop();
+                }
+            });
+
+            $("playBtn").addEventListener("click", () => {
+                // EN: Play the most recently recorded loop (if available).
+                startLoopPlayback();
+            });
+
+            $("stopBtn").addEventListener("click", () => {
+                // EN: Stop loop playback; if recording, cancel and discard recording.
+                if (loopState.isRecording) cancelRecordingLoop();
+                stopLoopPlayback();
+                stop();
+            });
+refreshLabels();
+        }
+
+        bindUI();
+
+        // ---------- Virtual piano (A=440, equal temperament) ----------
+        const A0 = 27.5;
+        const SEMITONE = Math.pow(2, 1 / 12);
+
+        function hzForSemitoneFromA0(n) {
+            return A0 * Math.pow(SEMITONE, n);
+        }
+
+        // White keys: A B C D E F G (in this register: A0 B0 C1 D1 E1 F1 G1)
+        const whiteKeys = [
+            { note: "A0", n: 0 },
+            { note: "B0", n: 2 },
+            { note: "C1", n: 3 },
+            { note: "D1", n: 5 },
+            { note: "E1", n: 7 },
+            { note: "F1", n: 8 },
+            { note: "G1", n: 10 },
+            { note: "A1", n: 12 }
+        ];
+
+        // Black keys positions (between whites): A# C# D# F# G#
+        // Each has an anchor index referencing the left white key column.
+        const blackKeys = [
+            { note: "A#0", n: 1, leftWhiteIndex: 0 },
+            { note: "C#1", n: 4, leftWhiteIndex: 2 },
+            { note: "D#1", n: 6, leftWhiteIndex: 3 },
+            { note: "F#1", n: 9, leftWhiteIndex: 5 },
+            { note: "G#1", n: 11, leftWhiteIndex: 6 }
+        ];
+
+    let resizeBound = false;
+    let resizeRaf = 0;
+
+        function buildPiano() {
+            const piano = document.getElementById("piano");
+            piano.innerHTML = "";
+
+            // Add white keys as grid children
+            for (const wk of whiteKeys) {
+                const hz = hzForSemitoneFromA0(wk.n);
+
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "whiteKey";
+                btn.dataset.hz = String(hz);
+                btn.dataset.note = wk.note;
+
+                const footer = document.createElement("div");
+                footer.className = "footer";
+                footer.innerHTML = `<span>${wk.note}</span><span class="hz">${hz.toFixed(2)} Hz</span>`;
+                btn.appendChild(footer);
+
+                attachKeyHandlers(btn, hz);
+
+                piano.appendChild(btn);
+            }
+
+            // Add black keys as absolute positioned elements
+            // Compute width per white key based on container width (after layout).
+            requestAnimationFrame(() => {
+                const rect = piano.getBoundingClientRect();
+                const whiteW = rect.width / 8;
+
+                // Mustan koskettimen leveys suhteessa whiteW:hen.
+                // Pidä tämä linjassa CSS:n 0.48 kanssa.
+                const blackW = whiteW * 0.48;
+
+                for (const bk of blackKeys) {
+                    const hz = hzForSemitoneFromA0(bk.n);
+
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "blackKey";
+                    btn.dataset.hz = String(hz);
+                    btn.dataset.note = bk.note;
+
+                    // Center black key between two white keys:
+                    // boundary at (leftWhiteIndex + 1) * whiteW, then shift left by half black width.
+                    // Clamp black-key x so it never overflows the piano container
+                    let left = (bk.leftWhiteIndex + 1) * whiteW - (blackW / 2);
+                    left = Math.max(0, Math.min(left, rect.width - blackW));
+
+                    btn.style.left = `${left}px`;
+                    btn.style.width = `${blackW}px`;
+
+
+                    const label = document.createElement("div");
+                    label.className = "label";
+                    label.innerHTML = `<span>${bk.note}</span><span class="hz">${hz.toFixed(2)} Hz</span>`;
+                    btn.appendChild(label);
+
+                    attachKeyHandlers(btn, hz);
+                    piano.appendChild(btn);
+                }
+            });
+
+            // Rebuild on resize to keep black-key positions accurate
+            if (!resizeBound) {
+                resizeBound = true;
+                window.addEventListener("resize", () => {
+                    cancelAnimationFrame(resizeRaf);
+                    resizeRaf = requestAnimationFrame(() => buildPiano());
+                }, { passive: true });
+            }
+        }
+
+        // Pointer tracking: allow "slide to another key" by moving finger
+        let activePointerId = null;
+        let activeEl = null;
+
+        function attachKeyHandlers(el, hz) {
+            const down = async (e) => {
+                e.preventDefault();
+
+                if (activePointerId !== null && activePointerId !== e.pointerId) return;
+
+                activePointerId = e.pointerId;
+                activeEl = el;
+                el.classList.add("active");
+
+                if (!state.running) await start();
+
+                setBaseHz(hz);
+                setGate(true);
+
+                // EN: Record note start.
+                recordEvent({ type: "gateOn", hz });
+
+                try { el.setPointerCapture(e.pointerId); } catch (_) { }
+            };
+
+            const up = (e) => {
+                e.preventDefault();
+                if (activePointerId !== e.pointerId) return;
+
+                if (activeEl) activeEl.classList.remove("active");
+                activeEl = null;
+                activePointerId = null;
+
+                setGate(false);
+
+                // EN: Record note end.
+                recordEvent({ type: "gateOff" });
+            };
+
+            const move = (e) => {
+                if (activePointerId !== e.pointerId) return;
+
+                // Hit-test under finger; switch key if different
+                const x = e.clientX;
+                const y = e.clientY;
+                const under = document.elementFromPoint(x, y);
+
+                if (!under) return;
+
+                const keyEl = under.classList?.contains("whiteKey") || under.classList?.contains("blackKey")
+                    ? under
+                    : under.closest?.(".whiteKey, .blackKey");
+
+                if (!keyEl || keyEl === activeEl) return;
+
+                const newHz = Number(keyEl.dataset.hz);
+                if (!Number.isFinite(newHz)) return;
+
+                if (activeEl) activeEl.classList.remove("active");
+                activeEl = keyEl;
+                activeEl.classList.add("active");
+
+                setBaseHz(newHz); // glide happens here
+
+                // EN: Record pitch change while gate is held (monophonic slide).
+                recordEvent({ type: "setHz", hz: newHz });
+            };
+
+            el.addEventListener("pointerdown", down, { passive: false });
+            el.addEventListener("pointerup", up, { passive: false });
+            el.addEventListener("pointercancel", up, { passive: false });
+            el.addEventListener("pointermove", move, { passive: false });
+            el.addEventListener("pointerleave", (e) => {
+                // If pointer capture is active, we still get moves; ignore leave.
+                // If not captured, releasing outside should stop sound.
+                if (activePointerId === null) return;
+            }, { passive: true });
+        }
+
+        buildPiano();
+    </script>
+</body>
+
+</html>
