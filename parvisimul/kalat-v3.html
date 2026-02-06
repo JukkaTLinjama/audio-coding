@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="fi">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Fish School (Boids) – single file</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b1020;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* Simple mobile HUD overlay */
+    #hud {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      font: 14px/1.2 -apple-system, system-ui, sans-serif;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    #hud .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0;
+    }
+
+    #hud label {
+      width: 140px;
+      opacity: 0.95;
+    }
+
+    #hud input[type=range] {
+      flex: 1;
+    }
+
+    #hud span {
+      width: 48px;
+      text-align: right;
+      opacity: 0.9;
+    }
+
+    #hud button {
+      flex: 1;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="hud">
+    <div class="row">
+      <label>Solo independence</label>
+      <input id="soloInd" type="range" min="0" max="1" step="0.01" value="0.70">
+      <span id="soloIndVal">0.70</span>
+    </div>
+    <div class="row">
+      <label>Density</label>
+      <input id="density" type="range" min="0" max="1" step="0.01" value="0.55">
+      <span id="densityVal">0.55</span>
+    </div>
+    <div class="row">
+      <button id="scatter">Scatter 30%</button>
+      <button id="regroup">Regroup</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+    // ---------- Utilities ----------
+    const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    function randomUnitVec3(out) {
+      // Random direction on sphere
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      out.set(
+        Math.sin(phi) * Math.cos(theta),
+        Math.sin(phi) * Math.sin(theta),
+        Math.cos(phi)
+      );
+      return out;
+    }
+
+    function setMag(v, m) {
+      const len = v.length();
+      if (len > 1e-6) v.multiplyScalar(m / len);
+      return v;
+    }
+
+    function clampLen(v, maxLen) {
+      const len = v.length();
+      if (len > maxLen && len > 1e-6) v.multiplyScalar(maxLen / len);
+      return v;
+    }
+
+    // ---------- Scene ----------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0b1020, 8, 40);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 10, 22);
+
+    const lightA = new THREE.HemisphereLight(0xffffff, 0x223355, 0.9);
+    scene.add(lightA);
+
+    const lightB = new THREE.DirectionalLight(0xffffff, 0.8);
+    lightB.position.set(8, 18, 10);
+    scene.add(lightB);
+
+    // Simple "fish" geometry: a stretched cone (feels fishy enough)
+    const geom = new THREE.ConeGeometry(0.25, 1.2, 8);
+    geom.translate(0, 0, 0); // keep centered
+    // Cone points up Y by default; we'll orient instances so +Y = forward.
+
+    const mat = new THREE.MeshBasicMaterial({
+      // MeshBasicMaterial ignores lights -> guaranteed visible on dark backgrounds.
+      vertexColors: true
+    });
+
+const N = 30;
+    const COLOR_SCHOOL = new THREE.Color("#cfe9ff");
+    const COLOR_SOLO = new THREE.Color("#ff7a2f");
+
+    // For N=30, separate Mesh objects are simplest and most reliable on mobile:
+    // - no instancing color edge cases
+    // - per-fish material color works everywhere
+    const fishMeshes = [];
+
+    for (let i = 0; i < N; i++) {
+      const m = new THREE.MeshBasicMaterial({ color: COLOR_SCHOOL.clone() });
+      const mesh = new THREE.Mesh(geom, m);
+      scene.add(mesh);
+      fishMeshes.push(mesh);
+    }
+
+    // ---------- Simulation data (arrays) ----------
+    const P = Array.from({ length: N }, () => new THREE.Vector3());
+    const V = Array.from({ length: N }, () => new THREE.Vector3());
+    const noise = Array.from({ length: N }, () => new THREE.Vector3());
+    const noiseTarget = Array.from({ length: N }, () => new THREE.Vector3());
+
+    const isSolo = new Uint8Array(N);
+    const flock = new Float32Array(N);
+    const flockTarget = new Float32Array(N);
+
+    // ---------- Parameters (tuned for calm fish school) ----------
+    const params = {
+      density: 0.55,
+      soloIndependence: 0.70,
+
+      // Base boids
+      neighborRadius: 90,
+      separationRadius: 18,
+      wAlignment: 1.2,
+      wCohesion: 1.1,
+      wSeparation: 0.6,
+
+      // Motion limits (calm)
+      maxSpeed: 1.9,   // units/s
+      minSpeed: 1.2,   // units/s
+      maxSteer: 1.6,   // units/s^2
+
+      // Orbit around a circle in XY plane, with a little vertical thickness
+      center: new THREE.Vector3(0, 0, 0),
+      orbitRadius: 7.0,
+      orbitSpeed: 1.55,
+      radiusK: 0.35,
+
+      // Noise (smoothed)
+      noiseStrength: 0.55,
+      noiseLerp: 0.03,
+
+      // Thickness in Z (school is a ribbon / tube)
+      zWanderK: 0.25, // gentle pull to z ~ 0
+    };
+
+    function soloFlockTarget(ind) {
+      // 0 => behaves more like the school, 1 => mostly independent
+      // Never go fully 0 to avoid "different species" vibe.
+      return 0.9 - 0.7 * ind; // 0.2..0.9
+    }
+
+    function applyDensity() {
+      // One slider controls "tightness" by increasing cohesion and decreasing neighbor radius
+      params.wCohesion = lerp(0.6, 1.4, params.density);
+      params.neighborRadius = lerp(120, 70, params.density);
+    }
+
+    function setMode(i, solo) {
+      isSolo[i] = solo ? 1 : 0;
+
+      // Update per-fish material color immediately
+      fishMeshes[i].material.color.copy(solo ? COLOR_SOLO : COLOR_SCHOOL);
+
+      flockTarget[i] = solo ? soloFlockTarget(params.soloIndependence) : 1.0;
+    }
+
+    function applySoloIndependence() {
+      const t = soloFlockTarget(params.soloIndependence);
+      for (let i = 0; i < N; i++) flockTarget[i] = isSolo[i] ? t : 1.0;
+    }
+
+    function init() {
+      // Spawn fish around the orbit ring with some noise
+      for (let i = 0; i < N; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = params.orbitRadius + (Math.random() - 0.5) * 1.5;
+
+        P[i].set(
+          Math.cos(a) * r,
+          (Math.random() - 0.5) * 1.2,
+          Math.sin(a) * 0.8
+        );
+
+        // Start tangential velocity + small jitter
+        const tangent = new THREE.Vector3(-Math.sin(a), Math.cos(a), 0).normalize();
+        V[i].copy(tangent).multiplyScalar(params.orbitSpeed);
+        V[i].addScaledVector(randomUnitVec3(new THREE.Vector3()), 0.2);
+
+        noise[i].copy(randomUnitVec3(new THREE.Vector3()));
+        noiseTarget[i].copy(randomUnitVec3(new THREE.Vector3()));
+
+        flock[i] = 1.0;
+        setMode(i, Math.random() < 0.25); // start with some solos
+      }
+    }
+
+    // ---------- UI binding ----------
+    function bindSlider(id, valId, onChange) {
+      const el = document.getElementById(id);
+      const out = document.getElementById(valId);
+      const update = () => {
+        const v = parseFloat(el.value);
+        out.textContent = v.toFixed(2);
+        onChange(v);
+      };
+      el.addEventListener("input", update, { passive: true });
+      update();
+    }
+
+    bindSlider("soloInd", "soloIndVal", (v) => {
+      params.soloIndependence = v;
+      applySoloIndependence();
+    });
+
+    bindSlider("density", "densityVal", (v) => {
+      params.density = v;
+      applyDensity();
+    });
+
+    document.getElementById("scatter").addEventListener("click", () => {
+      for (let i = 0; i < N; i++) {
+        if (Math.random() < 0.30) setMode(i, true);
+      }
+    });
+
+    document.getElementById("regroup").addEventListener("click", () => {
+      for (let i = 0; i < N; i++) setMode(i, false);
+    });
+
+    // ---------- Simulation step ----------
+    const tmp = {
+      d: new THREE.Vector3(),
+      sumPos: new THREE.Vector3(),
+      sumVel: new THREE.Vector3(),
+      sep: new THREE.Vector3(),
+      desired: new THREE.Vector3(),
+      steer: new THREE.Vector3(),
+      r2: new THREE.Vector3(),
+      tangent: new THREE.Vector3(),
+      radial: new THREE.Vector3(),
+      up: new THREE.Vector3(0, 1, 0),
+      quat: new THREE.Quaternion(),
+      m4: new THREE.Matrix4(),
+      s: new THREE.Vector3(1, 1, 1),
+    };
+
+    function updateNoise(i) {
+      // Occasionally pick a new target; then smoothly approach it.
+      if (Math.random() < 0.02) randomUnitVec3(noiseTarget[i]);
+    }
+
+    function step(dt) {
+      // dt capped for stability (mobile frame drops)
+      dt = Math.min(0.033, dt);
+
+      const neighborR = params.neighborRadius * 0.1;      // convert px-ish values to world-ish
+      const separationR = params.separationRadius * 0.1;  // scale down similarly
+
+      // Blend flock factor smoothly (dt-stable exponential smoothing)
+      const tau = 0.6;
+      const aBlend = 1 - Math.exp(-dt / tau);
+
+      for (let i = 0; i < N; i++) {
+        flock[i] += (flockTarget[i] - flock[i]) * aBlend;
+
+        // Smoothed noise (fish-like wander)
+        updateNoise(i);
+        noise[i].lerp(noiseTarget[i], params.noiseLerp);
+      }
+
+      for (let i = 0; i < N; i++) {
+        const p = P[i];
+        const v = V[i];
+
+        tmp.sumPos.set(0, 0, 0);
+        tmp.sumVel.set(0, 0, 0);
+        tmp.sep.set(0, 0, 0);
+        let count = 0;
+
+        // O(N^2) neighbor scan (fine for N=30)
+        for (let j = 0; j < N; j++) if (j !== i) {
+          tmp.d.copy(P[j]).sub(p);
+          const dist = tmp.d.length();
+
+          if (dist < neighborR) {
+            count++;
+            tmp.sumPos.add(P[j]);
+            tmp.sumVel.add(V[j]);
+
+            if (dist < separationR && dist > 1e-6) {
+              // Repel more strongly when very close
+              tmp.sep.addScaledVector(tmp.d, -1 / (dist * dist));
+            }
+          }
+        }
+
+        // Build desired velocity (fishy: steer toward desiredVel, not raw force sum)
+        tmp.desired.set(0, 0, 0);
+
+        if (count > 0) {
+          const inv = 1 / count;
+
+          // Alignment direction
+          tmp.sumVel.multiplyScalar(inv);
+          if (tmp.sumVel.lengthSq() > 1e-8) tmp.sumVel.normalize();
+          tmp.desired.addScaledVector(tmp.sumVel, params.wAlignment * flock[i]);
+
+          // Cohesion direction (toward neighbors' center)
+          tmp.sumPos.multiplyScalar(inv).sub(p);
+          if (tmp.sumPos.lengthSq() > 1e-8) tmp.sumPos.normalize();
+          tmp.desired.addScaledVector(tmp.sumPos, params.wCohesion * flock[i]);
+
+          // Separation direction
+          if (tmp.sep.lengthSq() > 1e-8) tmp.sep.normalize();
+          tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
+        }
+
+        // Orbit field around a circle in XY plane
+        tmp.r2.copy(p).sub(params.center);
+        tmp.r2.z = 0;
+        const rLen = tmp.r2.length() + 1e-6;
+
+        tmp.tangent.set(-tmp.r2.y, tmp.r2.x, 0).normalize();
+        tmp.desired.addScaledVector(tmp.tangent, params.orbitSpeed);
+
+        // Gentle radial correction toward orbitRadius
+        const err = rLen - params.orbitRadius;
+        tmp.radial.copy(tmp.r2).multiplyScalar(1 / rLen);
+        tmp.desired.addScaledVector(tmp.radial, -err * params.radiusK);
+
+        // Keep school fairly thin in Z (soft pull toward z=0)
+        tmp.desired.z += (-p.z) * params.zWanderK;
+
+        // Add smoothed noise
+        tmp.desired.addScaledVector(noise[i], params.noiseStrength);
+
+        // Convert desired direction into target speed (cruise-like)
+        const cruise = lerp(params.minSpeed, params.maxSpeed, 0.55);
+        if (tmp.desired.lengthSq() > 1e-8) setMag(tmp.desired, cruise);
+
+        // Steering = desiredVel - currentVel
+        tmp.steer.copy(tmp.desired).sub(v);
+        clampLen(tmp.steer, params.maxSteer);
+
+        // Integrate
+        v.addScaledVector(tmp.steer, dt);
+
+        // Clamp speed
+        const speed = v.length();
+        if (speed > params.maxSpeed) v.multiplyScalar(params.maxSpeed / speed);
+        else if (speed < params.minSpeed) v.multiplyScalar(params.minSpeed / speed);
+
+        p.addScaledVector(v, dt);
+
+        // Soft bounds (keep them near center, like "invisible aquarium")
+        // This is intentionally gentle to keep things calm.
+        const maxR = params.orbitRadius * 1.9;
+        const r3 = p.clone().sub(params.center);
+        const r3Len = r3.length();
+        if (r3Len > maxR) {
+          r3.multiplyScalar(1 / (r3Len + 1e-6));
+          p.addScaledVector(r3, -(r3Len - maxR) * 0.12);
+        }
+      }
+    }
+
+    // ---------- Render instanced fish ----------
+    function renderMeshes() {
+      for (let i = 0; i < N; i++) {
+        const p = P[i];
+        const dir = V[i].clone().normalize();
+        if (dir.lengthSq() < 1e-8) dir.set(0, 1, 0);
+
+        // ConeGeometry points +Y, so rotate +Y -> velocity direction
+        tmp.quat.setFromUnitVectors(tmp.up, dir);
+
+        const mesh = fishMeshes[i];
+        mesh.position.copy(p);
+        mesh.quaternion.copy(tmp.quat);
+      }
+    }
+
+
+    // ---------- Resize ----------
+    addEventListener("resize", () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+
+    // ---------- Simple touch drag to orbit camera ----------
+    let dragging = false;
+    let lastX = 0, lastY = 0;
+    let yaw = 0, pitch = 0.35; // radians
+    const camRadius = 22;
+
+    function updateCamera() {
+      pitch = clamp(pitch, -0.2, 1.2);
+      const x = Math.cos(yaw) * Math.cos(pitch) * camRadius;
+      const z = Math.sin(yaw) * Math.cos(pitch) * camRadius;
+      const y = Math.sin(pitch) * camRadius;
+      camera.position.set(x, y, z);
+      camera.lookAt(0, 0, 0);
+    }
+    updateCamera();
+
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      renderer.domElement.setPointerCapture(e.pointerId);
+    });
+    renderer.domElement.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      yaw -= dx * 0.005;
+      pitch -= dy * 0.005;
+      updateCamera();
+    });
+    renderer.domElement.addEventListener("pointerup", () => dragging = false);
+    renderer.domElement.addEventListener("pointercancel", () => dragging = false);
+
+    // ---------- Main loop ----------
+    init();
+    applyDensity();
+    applySoloIndependence();
+
+    let lastT = performance.now();
+    function loop(t) {
+      const dt = (t - lastT) / 1000;
+      lastT = t;
+
+      step(dt);
+      renderMeshes();
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+
+</html>
