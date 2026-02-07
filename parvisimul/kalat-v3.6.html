@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v3.2</title>
+  <title>Fish School (Boids) – v3.6</title>
   <style>
     html,
     body {
@@ -76,7 +76,7 @@
         margin-bottom:8px;
         opacity:0.9;
       ">
-        Fish School v3.2
+        Fish School v3.6
       </div>
 
     <div class="row">
@@ -155,35 +155,75 @@
     lightB.position.set(8, 18, 10);
     scene.add(lightB);
 
-    // Simple "fish" geometry: a stretched cone (feels fishy enough)
-    const geom = new THREE.ConeGeometry(0.25, 1.2, 8);
-    geom.translate(0, 0, 0); // keep centered
-    // Cone points up Y by default; we'll orient instances so +Y = forward.
+// Moving point lights for "living gloss" (no shadows)
+const keyLight = new THREE.PointLight(0xffffff, 1.1, 80);
+const fillLight = new THREE.PointLight(0x88ccff, 0.7, 80);
+scene.add(keyLight);
+scene.add(fillLight);
 
-    const mat = new THREE.MeshBasicMaterial({
-      // MeshBasicMaterial ignores lights -> guaranteed visible on dark backgrounds.
-      vertexColors: true
-    });
+function animateLights(ms) {
+  // Move lights in slow circles to create shifting highlights on the fish bodies
+  const t = ms * 0.001;
+  keyLight.position.set(Math.cos(t) * 12, 6, Math.sin(t) * 12);
+  fillLight.position.set(Math.cos(t * 0.7) * -10, -4, Math.sin(t * 0.7) * 10);
+}
 
+    // Fish geometry: body + tail (rocket-like exhaust)
+// Cone points +Y by default; we'll orient +Y = forward.
+const bodyGeom = new THREE.ConeGeometry(0.25, 1.2, 8);
+const tailGeom = new THREE.ConeGeometry(0.18, 0.45, 8);
+
+// Move tail backward along -Y (rear of the fish)
+tailGeom.translate(0, -0.8, 0);
+
+// Materials: body color changes by mode; tail stays "exhaust" color
+// Use StandardMaterial so lights create moving specular highlights (no shadows).
+const bodyMat = new THREE.MeshStandardMaterial({
+  color: 0xcfe9ff,
+  roughness: 0.22,
+  metalness: 0.05,
+});
+
+const tailMat = new THREE.MeshStandardMaterial({
+  color: 0xffb36b,
+  roughness: 0.45,
+  metalness: 0.0,
+  emissive: 0xff5a00,
+  emissiveIntensity: 0.9,
+});
 const N = 30;
     const COLOR_SCHOOL = new THREE.Color("#cfe9ff");
     const COLOR_SOLO = new THREE.Color("#ff7a2f");
 
-    // For N=30, separate Mesh objects are simplest and most reliable on mobile:
-    // - no instancing color edge cases
-    // - per-fish material color works everywhere
-    const fishMeshes = [];
+    // For N=30, separate objects are simplest and reliable on mobile.
+// Each fish is a Group: [0]=body, [1]=tail.
+const fishMeshes = [];
+const fishBodies = [];
+const fishTails = [];
 
-    for (let i = 0; i < N; i++) {
-      const m = new THREE.MeshBasicMaterial({ color: COLOR_SCHOOL.clone() });
-      const mesh = new THREE.Mesh(geom, m);
-      scene.add(mesh);
-      fishMeshes.push(mesh);
-    }
+for (let i = 0; i < N; i++) {
+  const body = new THREE.Mesh(bodyGeom, bodyMat.clone());
+  const tail = new THREE.Mesh(tailGeom, tailMat.clone());
+
+  const fish = new THREE.Group();
+  fish.add(body);
+  fish.add(tail);
+
+  scene.add(fish);
+  fishMeshes.push(fish);
+  fishBodies.push(body);
+  fishTails.push(tail);
+}
 
     // ---------- Simulation data (arrays) ----------
     const P = Array.from({ length: N }, () => new THREE.Vector3());
     const V = Array.from({ length: N }, () => new THREE.Vector3());
+
+    // Acceleration-based visuals (tail thrust + banking)
+    // English comments for open-source continuity.
+    const Vprev = Array.from({ length: N }, () => new THREE.Vector3());
+    const aForwardSm = new Float32Array(N); // signed forward acceleration (smoothed)
+    const aLateralSm = new Float32Array(N); // signed lateral acceleration (smoothed)
     const noise = Array.from({ length: N }, () => new THREE.Vector3());
     const noiseTarget = Array.from({ length: N }, () => new THREE.Vector3());
 
@@ -241,7 +281,7 @@ const N = 30;
       isSolo[i] = solo ? 1 : 0;
 
       // Update per-fish material color immediately
-      fishMeshes[i].material.color.copy(solo ? COLOR_SOLO : COLOR_SCHOOL);
+      fishBodies[i].material.color.copy(solo ? COLOR_SOLO : COLOR_SCHOOL);
 
       flockTarget[i] = solo ? soloFlockTarget(params.soloIndependence) : 1.0;
     }
@@ -268,6 +308,11 @@ const N = 30;
         V[i].copy(tangent).multiplyScalar(params.orbitSpeed);
         V[i].addScaledVector(randomUnitVec3(new THREE.Vector3()), 0.2);
 
+
+        // Initialize acceleration history
+        Vprev[i].copy(V[i]);
+        aForwardSm[i] = 0;
+        aLateralSm[i] = 0;
         noise[i].copy(randomUnitVec3(new THREE.Vector3()));
         noiseTarget[i].copy(randomUnitVec3(new THREE.Vector3()));
 
@@ -324,7 +369,14 @@ const N = 30;
       quat: new THREE.Quaternion(),
       m4: new THREE.Matrix4(),
       s: new THREE.Vector3(1, 1, 1),
+
+      // Scratch vectors for acceleration decomposition
+      a: new THREE.Vector3(),
+      fwd: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+      worldUp: new THREE.Vector3(0, 0, 1),
     };
+
 
     function updateNoise(i) {
       // Occasionally pick a new target; then smoothly approach it.
@@ -401,9 +453,12 @@ const N = 30;
           tmp.desired.addScaledVector(tmp.sumPos, params.wCohesion * flock[i]);
 
           // Separation direction
-          if (tmp.sep.lengthSq() > 1e-8) tmp.sep.normalize();
-          tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
-        }
+          // Separation: keep magnitude (stronger when very close), but clamp to avoid instability
+if (tmp.sep.lengthSq() > 1e-8) {
+  clampLen(tmp.sep, 3.0); // max separation impulse (tune 1.5..6.0)
+  tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
+}
+}
 
         // Orbit field around a circle in XY plane
         tmp.r2.copy(p).sub(params.center);
@@ -454,6 +509,38 @@ const N = 30;
 
         p.addScaledVector(v, dt);
 
+
+        // --- Acceleration decomposition (for visuals) ---
+        // a = (v - vPrev) / dt
+        const invDt = 1 / Math.max(dt, 1e-4);
+        tmp.a.copy(v).sub(Vprev[i]).multiplyScalar(invDt);
+
+        // fwd axis from velocity
+        tmp.fwd.copy(v);
+        if (tmp.fwd.lengthSq() < 1e-8) tmp.fwd.set(0, 1, 0);
+        tmp.fwd.normalize();
+
+        // right axis = fwd x worldUp (screen-ish basis; XY is screen plane)
+        tmp.right.copy(tmp.fwd).cross(tmp.worldUp);
+        if (tmp.right.lengthSq() < 1e-8) {
+          // Fallback if fwd || up
+          tmp.worldUp.set(0, 1, 0);
+          tmp.right.copy(tmp.fwd).cross(tmp.worldUp);
+          tmp.worldUp.set(0, 0, 1);
+        }
+        tmp.right.normalize();
+
+        // Signed forward and lateral acceleration components
+        const aForward = tmp.a.dot(tmp.fwd);
+        const aLateral = tmp.a.dot(tmp.right);
+
+        // Smooth to avoid flicker
+        const alphaAcc = 1 - Math.exp(-dt / 0.10); // ~100ms response
+        aForwardSm[i] += (aForward - aForwardSm[i]) * alphaAcc;
+        aLateralSm[i] += (aLateral - aLateralSm[i]) * alphaAcc;
+
+        // Store v for next frame
+        Vprev[i].copy(v);
         // Soft bounds (keep them near center, like "invisible aquarium")
         // This is intentionally gentle to keep things calm.
         const maxR = params.orbitRadius * 1.9;
@@ -476,9 +563,36 @@ const N = 30;
         // ConeGeometry points +Y, so rotate +Y -> velocity direction
         tmp.quat.setFromUnitVectors(tmp.up, dir);
 
-        const mesh = fishMeshes[i];
-        mesh.position.copy(p);
-        mesh.quaternion.copy(tmp.quat);
+        const fish = fishMeshes[i];
+fish.position.copy(p);
+fish.quaternion.copy(tmp.quat);
+
+// Tail thrust + glow from forward acceleration (no oscillation)
+const tail = fishTails[i];
+
+// Forward thrust: only positive (accelerating forward)
+const f = aForwardSm[i];
+const fPos = Math.max(0, f);
+
+// Map forward accel to 0..1
+const fCap = 2.0; // more sensitive cap (units/s^2)
+const thrust = Math.min(fPos, fCap) / fCap;
+
+// Tail length and glow (StandardMaterial)
+tail.scale.set(1, 0.75 + 2.2 * thrust, 1);
+tail.material.emissiveIntensity = 0.35 + 4.0 * thrust;
+
+// Strong banking indicator from lateral acceleration (amplified)
+const lat = aLateralSm[i];
+const latCap = 2.5; // more sensitive cap
+const latNorm = Math.max(-latCap, Math.min(latCap, lat)) / latCap;
+
+// Visible bank angle (radians). Increase gain for clarity.
+const bankMax = 1.05; // stronger indicator (~60 degrees)
+const bank = -latNorm * bankMax;
+
+// Apply bank around forward axis (local +Y after alignment)
+fish.rotateY(bank);
       }
     }
 
@@ -534,6 +648,8 @@ const N = 30;
     function loop(t) {
       const dt = (t - lastT) / 1000;
       lastT = t;
+
+      animateLights(t);
 
       step(dt);
       renderMeshes();
