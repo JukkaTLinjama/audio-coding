@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – single file</title>
+  <title>Fish School (Boids) – v3.1</title>
   <style>
     html,
     body {
@@ -69,7 +69,16 @@
 </head>
 
 <body>
-  <div id="hud">
+    <div id="hud">
+      <div style="
+        font-weight:600;
+        font-size:15px;
+        margin-bottom:8px;
+        opacity:0.9;
+      ">
+        Fish School v3.1
+      </div>
+
     <div class="row">
       <label>Solo independence</label>
       <input id="soloInd" type="range" min="0" max="1" step="0.01" value="0.70">
@@ -128,8 +137,16 @@
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x0b1020, 8, 40);
 
-    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
-    camera.position.set(0, 10, 22);
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      200
+    );
+
+    // Camera straight on Z axis, looking at XY plane
+    camera.position.set(0, 0, 22);
+    camera.lookAt(0, 0, 0);
 
     const lightA = new THREE.HemisphereLight(0xffffff, 0x223355, 0.9);
     scene.add(lightA);
@@ -180,8 +197,8 @@ const N = 30;
       soloIndependence: 0.70,
 
       // Base boids
-      neighborRadius: 90,
-      separationRadius: 18,
+      neighborRadius: 6.5,
+      separationRadius: 1.6,
       wAlignment: 1.2,
       wCohesion: 1.1,
       wSeparation: 0.6,
@@ -211,11 +228,14 @@ const N = 30;
       return 0.9 - 0.7 * ind; // 0.2..0.9
     }
 
-    function applyDensity() {
-      // One slider controls "tightness" by increasing cohesion and decreasing neighbor radius
-      params.wCohesion = lerp(0.6, 1.4, params.density);
-      params.neighborRadius = lerp(120, 70, params.density);
-    }
+  function applyDensity() {
+    // Stronger mapping so the slider is clearly visible in motion
+    params.wCohesion = lerp(0.6, 2.0, params.density);
+    params.wAlignment = lerp(0.8, 1.8, params.density);
+
+    // World-units (since neighborR is now used directly)
+    params.neighborRadius = lerp(8.0, 5.5, params.density);
+  }
 
     function setMode(i, solo) {
       isSolo[i] = solo ? 1 : 0;
@@ -315,11 +335,10 @@ const N = 30;
       // dt capped for stability (mobile frame drops)
       dt = Math.min(0.033, dt);
 
-      const neighborR = params.neighborRadius * 0.1;      // convert px-ish values to world-ish
-      const separationR = params.separationRadius * 0.1;  // scale down similarly
-
+      const neighborR = params.neighborRadius;      // convert px-ish values to world-ish
+      const separationR = params.separationRadius;
       // Blend flock factor smoothly (dt-stable exponential smoothing)
-      const tau = 0.6;
+      const tau = 0.18;
       const aBlend = 1 - Math.exp(-dt / tau);
 
       for (let i = 0; i < N; i++) {
@@ -329,6 +348,15 @@ const N = 30;
         updateNoise(i);
         noise[i].lerp(noiseTarget[i], params.noiseLerp);
       }
+      // Global center to prevent the school splitting into multiple clusters
+      const globalCenter = new THREE.Vector3();
+      let globalCount = 0;
+      for (let i = 0; i < N; i++) {
+        if (isSolo[i]) continue; // keep solos freer
+        globalCenter.add(P[i]);
+        globalCount++;
+      }
+      if (globalCount > 0) globalCenter.multiplyScalar(1 / globalCount);
 
       for (let i = 0; i < N; i++) {
         const p = P[i];
@@ -384,6 +412,10 @@ const N = 30;
 
         tmp.tangent.set(-tmp.r2.y, tmp.r2.x, 0).normalize();
         tmp.desired.addScaledVector(tmp.tangent, params.orbitSpeed);
+        // Keep solo fish moving with the main flow so they don't lag behind
+        if (isSolo[i]) {
+          tmp.desired.addScaledVector(tmp.tangent, 0.8); // tune 0.4..1.2
+        }
 
         // Gentle radial correction toward orbitRadius
         const err = rLen - params.orbitRadius;
@@ -395,6 +427,14 @@ const N = 30;
 
         // Add smoothed noise
         tmp.desired.addScaledVector(noise[i], params.noiseStrength);
+        // Mild "glue" towards global center so the school doesn't split into two flocks
+        if (globalCount > 0) {
+          const toGlobal = globalCenter.clone().sub(p);
+          if (toGlobal.lengthSq() > 1e-8) {
+            toGlobal.normalize();
+            tmp.desired.addScaledVector(toGlobal, 0.35 * flock[i]);
+          }
+        }
 
         // Convert desired direction into target speed (cruise-like)
         const cruise = lerp(params.minSpeed, params.maxSpeed, 0.55);
@@ -453,7 +493,10 @@ const N = 30;
     // ---------- Simple touch drag to orbit camera ----------
     let dragging = false;
     let lastX = 0, lastY = 0;
-    let yaw = 0, pitch = 0.35; // radians
+    // Start camera straight on Z axis (front view)
+    let yaw = 1.5;
+    let pitch = 0; // 0 = XY plane straight on
+
     const camRadius = 22;
 
     function updateCamera() {

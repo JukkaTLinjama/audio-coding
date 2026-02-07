@@ -2,6 +2,19 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
+            "id": "fish school v3.1",
+            "title": "simulation of fish school v3.1",
+            "path": "./parvisimul/kalat-v3.html",
+            "thumb": "/assets/vibro-keyboard.png",
+            "status": "WIP",
+            "description": "fish simul v3.1",
+            "tags": [
+                "3D",
+                "simulation",
+                "swarmn behavior"
+            ]
+        },
+        {
             "id": "vibro-keyboard",
             "title": "Vibroacoustic keyboard",
             "path": "./Vibroacoustic/vibro-keyboard1.html",
