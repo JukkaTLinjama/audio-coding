@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v3.5</title>
+  <title>Fish School (Boids) – v3.8</title>
   <style>
     html,
     body {
@@ -76,7 +76,7 @@
         margin-bottom:8px;
         opacity:0.9;
       ">
-        Fish School v3.5
+        Fish School v3.8
       </div>
 
     <div class="row">
@@ -248,11 +248,16 @@ for (let i = 0; i < N; i++) {
       minSpeed: 1.2,   // units/s
       maxSteer: 1.6,   // units/s^2
 
-      // Orbit around a circle in XY plane, with a little vertical thickness
+      // Path following (random smooth closed curve in XY, drawn on screen)
       center: new THREE.Vector3(0, 0, 0),
-      orbitRadius: 7.0,
-      orbitSpeed: 1.55,
-      radiusK: 0.35,
+      pathRadius: 7.0,       // average radius of the curve
+      pathJitter: 2.2,       // randomness of the curve control points
+      pathZAmplitude: 6.0,  // Z range of the curve (set 0 for flat XY)
+      pathJitter: 2.2,       // randomness of the curve control points
+      pathControlPoints: 9,  // number of control points for the closed curve
+      pathSamples: 240,      // polyline samples used for nearest-point lookup + drawing
+      pathSpeed: 1.55,       // "flow" speed along the curve
+      pathAttractK: 0.55,    // pull strength toward the curve (tune 0.2..1.2)
 
       // Noise (smoothed)
       noiseStrength: 0.55,
@@ -261,6 +266,83 @@ for (let i = 0; i < N; i++) {
       // Thickness in Z (school is a ribbon / tube)
       zWanderK: 0.25, // gentle pull to z ~ 0
     };
+
+    // ---------- Random path (Catmull-Rom) ----------
+    // We replace the old circular orbit with a random smooth closed curve.
+    // The curve is sampled into a polyline so each fish can "lock on" to the nearest sample
+    // (fast, stable, and good enough visually for N=30).
+    let pathCurve = null;
+    let pathSamplePts = [];     // Vector3[]
+    let pathSampleTans = [];    // Vector3[]
+    let pathLine = null;        // THREE.Line
+
+    function buildRandomClosedCurve() {
+      const pts = [];
+      const M = Math.max(4, Math.floor(params.pathControlPoints || 8));
+      const R = params.pathRadius;
+      const J = params.pathJitter;
+      const Z = params.pathZAmplitude || 0;
+
+      for (let k = 0; k < M; k++) {
+        const a = (k / M) * Math.PI * 2;
+        // Jittered radius gives a "random" loop but keeps it roughly centered.
+        const r = R + (Math.random() * 2 - 1) * J;
+        const z = (Math.random() * 2 - 1) * Z;
+        pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, z));
+      }
+
+      // Closed Catmull-Rom spline in XYZ (Z controlled by pathZAmplitude)
+      return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+    }
+
+    function rebuildPath() {
+      pathCurve = buildRandomClosedCurve();
+
+      // Sample points + tangents for nearest-point lookup and for drawing the path line
+      const S = Math.max(60, Math.floor(params.pathSamples || 200));
+      pathSamplePts = new Array(S);
+      pathSampleTans = new Array(S);
+
+      for (let i = 0; i < S; i++) {
+        const u = i / S;
+        pathSamplePts[i] = pathCurve.getPointAt(u);
+        pathSampleTans[i] = pathCurve.getTangentAt(u).normalize();
+      }
+
+      // Draw path as a thin line
+      const geom = new THREE.BufferGeometry().setFromPoints(pathSamplePts.concat([pathSamplePts[0].clone()]));
+      const mat = new THREE.LineBasicMaterial({
+        color: 0x6aa7ff,
+        transparent: true,
+        opacity: 0.75,
+        depthTest: false,
+        depthWrite: false,
+      });
+
+      if (pathLine) {
+        scene.remove(pathLine);
+        pathLine.geometry.dispose();
+        pathLine.material.dispose();
+      }
+
+      pathLine = new THREE.Line(geom, mat);
+      pathLine.frustumCulled = false;
+      scene.add(pathLine);
+      // Keep the guide path visible on top of fish and fog.
+      pathLine.renderOrder = 9999;
+    }
+
+    function findNearestPathIndex(p) {
+      // Brute-force nearest sample (S ~ 240, N=30 => cheap).
+      let best = 0;
+      let bestD2 = Infinity;
+      for (let i = 0; i < pathSamplePts.length; i++) {
+        const d2 = pathSamplePts[i].distanceToSquared(p);
+        if (d2 < bestD2) { bestD2 = d2; best = i; }
+      }
+      return best;
+    }
+
 
     function soloFlockTarget(ind) {
       // 0 => behaves more like the school, 1 => mostly independent
@@ -292,22 +374,24 @@ for (let i = 0; i < N; i++) {
     }
 
     function init() {
-      // Spawn fish around the orbit ring with some noise
+      // Build the random path first (so spawns + initial tangents match the curve).
+      rebuildPath();
+
+      // Spawn fish near the path, with small offsets.
       for (let i = 0; i < N; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const r = params.orbitRadius + (Math.random() - 0.5) * 1.5;
+        const u = Math.random();
+        const onPath = pathCurve.getPointAt(u);
+        const tan = pathCurve.getTangentAt(u).normalize();
 
-        P[i].set(
-          Math.cos(a) * r,
-          (Math.random() - 0.5) * 1.2,
-          Math.sin(a) * 0.8
-        );
+        // Small spawn offset around the curve point (keeps initial density similar to v3.6)
+        const offset = randomUnitVec3(new THREE.Vector3()).multiplyScalar(0.9);
+        offset.z *= 0.4;
 
-        // Start tangential velocity + small jitter
-        const tangent = new THREE.Vector3(-Math.sin(a), Math.cos(a), 0).normalize();
-        V[i].copy(tangent).multiplyScalar(params.orbitSpeed);
+        P[i].copy(onPath).add(offset);
+
+        // Start moving along the curve tangent + small jitter
+        V[i].copy(tan).multiplyScalar(params.pathSpeed);
         V[i].addScaledVector(randomUnitVec3(new THREE.Vector3()), 0.2);
-
 
         // Initialize acceleration history
         Vprev[i].copy(V[i]);
@@ -320,6 +404,7 @@ for (let i = 0; i < N; i++) {
         setMode(i, Math.random() < 0.25); // start with some solos
       }
     }
+
 
     // ---------- UI binding ----------
     function bindSlider(id, valId, onChange) {
@@ -365,6 +450,7 @@ for (let i = 0; i < N; i++) {
       r2: new THREE.Vector3(),
       tangent: new THREE.Vector3(),
       radial: new THREE.Vector3(),
+      toPath: new THREE.Vector3(),
       up: new THREE.Vector3(0, 1, 0),
       quat: new THREE.Quaternion(),
       m4: new THREE.Matrix4(),
@@ -453,26 +539,29 @@ for (let i = 0; i < N; i++) {
           tmp.desired.addScaledVector(tmp.sumPos, params.wCohesion * flock[i]);
 
           // Separation direction
-          if (tmp.sep.lengthSq() > 1e-8) tmp.sep.normalize();
-          tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
-        }
+          // Separation: keep magnitude (stronger when very close), but clamp to avoid instability
+if (tmp.sep.lengthSq() > 1e-8) {
+  clampLen(tmp.sep, 3.0); // max separation impulse (tune 1.5..6.0)
+  tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
+}
+}
 
-        // Orbit field around a circle in XY plane
-        tmp.r2.copy(p).sub(params.center);
-        tmp.r2.z = 0;
-        const rLen = tmp.r2.length() + 1e-6;
+        // Path following: flow along a random closed curve + pull back to it
+        const pathIdx = findNearestPathIndex(p);
+        const pathTan = pathSampleTans[pathIdx];
+        const pathPt = pathSamplePts[pathIdx];
 
-        tmp.tangent.set(-tmp.r2.y, tmp.r2.x, 0).normalize();
-        tmp.desired.addScaledVector(tmp.tangent, params.orbitSpeed);
-        // Keep solo fish moving with the main flow so they don't lag behind
+        // Primary flow direction along the curve
+        tmp.desired.addScaledVector(pathTan, params.pathSpeed);
+
+        // Keep solo fish moving with the flow so they don't lag behind
         if (isSolo[i]) {
-          tmp.desired.addScaledVector(tmp.tangent, 0.8); // tune 0.4..1.2
+          tmp.desired.addScaledVector(pathTan, 0.8); // tune 0.4..1.2
         }
 
-        // Gentle radial correction toward orbitRadius
-        const err = rLen - params.orbitRadius;
-        tmp.radial.copy(tmp.r2).multiplyScalar(1 / rLen);
-        tmp.desired.addScaledVector(tmp.radial, -err * params.radiusK);
+        // Pull towards the nearest point on the curve (stabilizes the formation)
+        tmp.toPath.copy(pathPt).sub(p);
+        tmp.desired.addScaledVector(tmp.toPath, params.pathAttractK);
 
         // Keep school fairly thin in Z (soft pull toward z=0)
         tmp.desired.z += (-p.z) * params.zWanderK;
@@ -540,7 +629,7 @@ for (let i = 0; i < N; i++) {
         Vprev[i].copy(v);
         // Soft bounds (keep them near center, like "invisible aquarium")
         // This is intentionally gentle to keep things calm.
-        const maxR = params.orbitRadius * 1.9;
+        const maxR = (params.pathRadius + params.pathJitter) * 2.1; // gentle spherical bound around the path
         const r3 = p.clone().sub(params.center);
         const r3Len = r3.length();
         if (r3Len > maxR) {

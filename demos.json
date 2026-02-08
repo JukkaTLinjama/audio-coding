@@ -2,9 +2,9 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "fish school v3.6",
-            "title": "simulation of fish school v3.6",
-            "path": "./parvisimul/kalat-v3.6.html",
+            "id": "fish school v3",
+            "title": "simulation of fish school v3.9",
+            "path": "./parvisimul/kalat-v3.9.html",
             "thumb": "/assets/Fish-v3.6.png",
             "status": "WIP",
             "description": "fish simul v3.6. ring motion, but two swarms...",
@@ -15,12 +15,12 @@
             ]
         },
         {
-            "id": "vibro-keyboard",
-            "title": "Vibroacoustic keyboard",
-            "path": "./Vibroacoustic/vibro-keyboard1.html",
-            "thumb": "/assets/vibro-keyboard.png",
+            "id": "vibro-keyboard-2",
+            "title": "Vibroacoustic keyboard v2.4",
+            "path": "./Vibroacoustic/vibro-keyboard-v2.4.html",
+            "thumb": "/assets/vibro-keyboard-2.4.png",
             "status": "WIP",
-            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception.",
+            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping rec/play functionality.",
             "tags": [
                 "vibro",
                 "lf",
@@ -28,12 +28,12 @@
             ]
         },
         {
-            "id": "vibro-keyboard-2",
-            "title": "Vibroacoustic keyboard 2.4",
-            "path": "./Vibroacoustic/vibro-keyboard-v2.4.html",
+            "id": "vibro-keyboard",
+            "title": "Vibroacoustic keyboard 1",
+            "path": "./Vibroacoustic/vibro-keyboard1.html",
             "thumb": "/assets/vibro-keyboard.png",
             "status": "WIP",
-            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping functionality.",
+            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. ",
             "tags": [
                 "vibro",
                 "lf",
