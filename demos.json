@@ -2,9 +2,9 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "fish school v3",
-            "title": "simulation of fish school v3.9",
-            "path": "./parvisimul/kalat-v3.9.html",
+            "id": "fish school v4",
+            "title": "simulation of fish school v4.x",
+            "path": "./parvisimul/kalat-v3.95.html",
             "thumb": "/assets/Fish-v3.6.png",
             "status": "WIP",
             "description": "fish simul v3.6. ring motion, but two swarms...",

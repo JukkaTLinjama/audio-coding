@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v3.9</title>
+  <title>Fish School (Boids) – v3.95</title>
   <style>
     html,
     body {
@@ -76,18 +76,30 @@
         margin-bottom:8px;
         opacity:0.9;
       ">
-        Fish School v3.9
+        Fish School v3.95 ------
       </div>
 
     <div class="row">
+      <label>View zoom</label>
+      <input id="viewZoom" type="range" min="0.80" max="2.20" step="0.01" value="1.00">
+      <span id="viewZoomVal">1.00</span>
+    </div>
+
+      <div class="row">
       <label>Solo independence</label>
       <input id="soloInd" type="range" min="0" max="1" step="0.01" value="0.70">
       <span id="soloIndVal">0.70</span>
     </div>
     <div class="row">
       <label>Density</label>
-      <input id="density" type="range" min="0" max="1" step="0.01" value="0.55">
-      <span id="densityVal">0.55</span>
+      <input id="density" type="range" min="0" max="2" step="0.01" value="1.10">
+      <span id="densityVal">1.10</span>
+    </div>
+
+    <div class="row">
+      <label>Reaction lag (s)</label>
+      <input id="reactionLag" type="range" min="0" max="0.80" step="0.01" value="0.18">
+      <span id="reactionLagVal">0.18</span>
     </div>
     <div class="row">
       <button id="scatter">Scatter 30%</button>
@@ -135,7 +147,7 @@
     document.body.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x0b1020, 8, 40);
+  scene.fog = new THREE.Fog(0x0b1020, 8, 80); // temporary, will be driven by params later
 
     const camera = new THREE.PerspectiveCamera(
       50,
@@ -143,10 +155,6 @@
       0.1,
       200
     );
-
-    // Camera straight on Z axis, looking at XY plane
-    camera.position.set(0, 0, 22);
-    camera.lookAt(0, 0, 0);
 
     const lightA = new THREE.HemisphereLight(0xffffff, 0x223355, 0.9);
     scene.add(lightA);
@@ -226,6 +234,9 @@ for (let i = 0; i < N; i++) {
     const aLateralSm = new Float32Array(N); // signed lateral acceleration (smoothed)
     const noise = Array.from({ length: N }, () => new THREE.Vector3());
     const noiseTarget = Array.from({ length: N }, () => new THREE.Vector3());
+    // EN: Per-fish steering lag (reaction time). We smooth desired velocity to avoid synchronized turns.
+    const desiredSm = Array.from({ length: N }, () => new THREE.Vector3());
+    const reactionTau = new Float32Array(N); // seconds
 
     const isSolo = new Uint8Array(N);
     const flock = new Float32Array(N);
@@ -233,7 +244,13 @@ for (let i = 0; i < N; i++) {
 
     // ---------- Parameters (tuned for calm fish school) ----------
     const params = {
-      density: 0.55,
+      // EN: Base camera distance without HUD compensation.
+      baseCamZ: 22,     // EN: Manual zoom-out multiplier (UI). 1 = default.
+      viewZoom: 1.00,   // EN: Fog baselines (tuned for baseCamZ). We'll scale them with zoom distance.
+      fogNear0: 8,
+      fogFar0: 40,
+
+      density: 1.10,
       soloIndependence: 0.70,
 
       // Base boids
@@ -253,7 +270,6 @@ for (let i = 0; i < N; i++) {
       pathRadius: 7.0,       // average radius of the curve
       pathJitter: 2.2,       // randomness of the curve control points
       pathZAmplitude: 6.0,  // Z range of the curve (set 0 for flat XY)
-      pathJitter: 2.2,       // randomness of the curve control points
       pathControlPoints: 9,  // number of control points for the closed curve
       pathSamples: 240,      // polyline samples used for nearest-point lookup + drawing
       pathSpeed: 1.55,       // "flow" speed along the curve
@@ -264,6 +280,11 @@ for (let i = 0; i < N; i++) {
       pathLeaderU: 0.0,      // 0..1 start phase on the curve
       showPathLeader: true,  // draw a small marker for debugging
 
+      // EN: Average reaction lag (seconds). 0 = instant response.
+      reactionLag: 0.18,
+      // EN: Individual variation around the mean (0..1). Keep fixed unless you want another slider.
+      reactionJitter: 0.60,
+
       // Noise (smoothed)
       noiseStrength: 0.55,
       noiseLerp: 0.03,
@@ -271,6 +292,11 @@ for (let i = 0; i < N; i++) {
       // Thickness in Z (school is a ribbon / tube)
       zWanderK: 0.25, // gentle pull to z ~ 0
     };
+
+    // EN: Camera setup must happen after params initialization.
+      camera.position.set(0, 0, params.baseCamZ);
+      camera.lookAt(0, 0, 0);
+      updateCameraForHud();
 
     // ---------- Random path (Catmull-Rom) ----------
     // We replace the old circular orbit with a random smooth closed curve.
@@ -399,27 +425,62 @@ for (let i = 0; i < N; i++) {
     }
 
   function applyDensity() {
-    // Stronger mapping so the slider is clearly visible in motion
-    params.wCohesion = lerp(0.6, 2.0, params.density);
-    params.wAlignment = lerp(0.8, 1.8, params.density);
+      // Map slider 0..2 -> normalized 0..1
+      const d = clamp(params.density / 2, 0, 1);
 
-    // World-units (since neighborR is now used directly)
-    params.neighborRadius = lerp(8.0, 5.5, params.density);
-  }
+      // Nonlinear response: keep mid stable, but make the low end "explode" more.
+      const tight = Math.pow(d, 1.35); // 0..1, emphasizes low-density differences
 
-    function setMode(i, solo) {
-      isSolo[i] = solo ? 1 : 0;
+      // When density is LOW (tight ~ 0):
+      // - cohesion/alignment weak
+      // - neighbor radius larger (fish can "see" farther but don't glue together)
+      // - separation stronger + separation radius bigger => school breaks apart clearly
+      //
+      // When density is HIGH (tight ~ 1):
+      // - cohesion/alignment strong
+      // - neighbor radius smaller => compact school
+      // - separation softer + smaller separation radius
 
-      // Update per-fish material color immediately
-      fishBodies[i].material.color.copy(solo ? COLOR_SOLO : COLOR_SCHOOL);
+      params.wCohesion = lerp(0.12, 2.40, tight);
+      params.wAlignment = lerp(0.35, 2.10, tight);
 
-      flockTarget[i] = solo ? soloFlockTarget(params.soloIndependence) : 1.0;
+      params.neighborRadius = lerp(6.0, 4.8, tight);   // low density => less neighbor coupling
+      params.wSeparation = lerp(1.60, 0.28, tight); // low density => push apart
+      params.separationRadius = lerp(2.60, 1.25, tight); // low density => bigger personal space
+
+      // EN: Store runtime multipliers so step() can weaken path/glue at low density.
+      params._tight = tight; // 0..1
+      params._pathAttractScale = lerp(0.03, 1.00, tight); // almost free when density=0
+      params._noiseScale = lerp(2.20, 1.00, tight);       // more wander when density=0
     }
 
     function applySoloIndependence() {
       const t = soloFlockTarget(params.soloIndependence);
       for (let i = 0; i < N; i++) flockTarget[i] = isSolo[i] ? t : 1.0;
     }
+
+    function setMode(i, solo) {
+      // EN: Toggle fish between "solo" and "school" behavior.
+      // isSolo drives flockTarget via applySoloIndependence().
+      isSolo[i] = solo ? 1 : 0;
+      applySoloIndependence();
+
+      // EN: Optional visual cue (color shift) for solo fish.
+      if (fishBodies && fishBodies[i]) {
+        fishBodies[i].material.color.copy(solo ? COLOR_SOLO : COLOR_SCHOOL);
+      }
+    }
+
+    function resampleReactionLags() {
+        const mean = Math.max(0, params.reactionLag);
+        const jitter = clamp(params.reactionJitter, 0, 1);
+
+        for (let i = 0; i < N; i++) {
+          // EN: Uniform ± jitter around mean (e.g. jitter=0.6 => 0.4..1.6x)
+          const factor = 1 + (Math.random() * 2 - 1) * jitter;
+          reactionTau[i] = Math.max(0, mean * factor);
+        }
+      }
 
     function init() {
       // Build the random path first (so spawns + initial tangents match the curve).
@@ -459,6 +520,8 @@ for (let i = 0; i < N; i++) {
         // Start moving along the curve tangent + small jitter
         V[i].copy(tan).multiplyScalar(params.pathSpeed);
         V[i].addScaledVector(randomUnitVec3(new THREE.Vector3()), 0.2);
+        // EN: Start the smoothing state from current velocity (prevents a "snap" on frame 1).
+        desiredSm[i].copy(V[i]);
 
         // Initialize acceleration history
         Vprev[i].copy(V[i]);
@@ -466,12 +529,12 @@ for (let i = 0; i < N; i++) {
         aLateralSm[i] = 0;
         noise[i].copy(randomUnitVec3(new THREE.Vector3()));
         noiseTarget[i].copy(randomUnitVec3(new THREE.Vector3()));
+        resampleReactionLags();
 
         flock[i] = 1.0;
         setMode(i, Math.random() < 0.25); // start with some solos
       }
     }
-
 
     // ---------- UI binding ----------
     function bindSlider(id, valId, onChange) {
@@ -485,6 +548,10 @@ for (let i = 0; i < N; i++) {
       el.addEventListener("input", update, { passive: true });
       update();
     }
+    bindSlider("viewZoom", "viewZoomVal", (v) => {
+      params.viewZoom = v;
+      updateCameraForHud();
+    });
 
     bindSlider("soloInd", "soloIndVal", (v) => {
       params.soloIndependence = v;
@@ -494,6 +561,11 @@ for (let i = 0; i < N; i++) {
     bindSlider("density", "densityVal", (v) => {
       params.density = v;
       applyDensity();
+    });
+
+    bindSlider("reactionLag", "reactionLagVal", (v) => {
+      params.reactionLag = v;
+      resampleReactionLags(); // EN: Re-randomize per-fish delays around the new mean.
     });
 
     document.getElementById("scatter").addEventListener("click", () => {
@@ -628,7 +700,9 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // Path leader following: the whole school follows a single moving point on the curve.
         // EN: No nearest-point lookup => no snapping when the curve self-intersects.
         tmp.toPath.copy(leaderPos).sub(p);
-        tmp.desired.addScaledVector(tmp.toPath, params.pathAttractK);
+        // EN: Density=0 should allow almost free motion => weaken pull to the path leader.
+        const attractK = params.pathAttractK * (params._pathAttractScale ?? 1.0);
+        tmp.desired.addScaledVector(tmp.toPath, attractK);
 
         // Forward bias so the school flows along the curve direction
         tmp.desired.addScaledVector(leaderTan, params.pathSpeed);
@@ -648,8 +722,19 @@ if (tmp.sep.lengthSq() > 1e-8) {
           const toGlobal = globalCenter.clone().sub(p);
           if (toGlobal.lengthSq() > 1e-8) {
             toGlobal.normalize();
-            tmp.desired.addScaledVector(toGlobal, 0.35 * flock[i]);
+            // EN: Density-aware "glue" keeps high-density schools unified,
+            // but allows low-density settings to disperse more.
+            const glue = lerp(0.00, 0.42, clamp(params.density / 2, 0, 1));
+            tmp.desired.addScaledVector(toGlobal, glue * flock[i]);
           }
+        }
+        // EN: Reaction lag: smooth desired velocity so fish don't turn in perfect sync.
+        const tau = reactionTau[i];
+        if (tau > 1e-5) {
+          // Exponential smoothing: alpha = 1 - exp(-dt/tau)
+          const alpha = 1 - Math.exp(-dt / tau);
+          desiredSm[i].lerp(tmp.desired, alpha);
+          tmp.desired.copy(desiredSm[i]);
         }
 
         // Convert desired direction into target speed (cruise-like)
@@ -728,41 +813,68 @@ if (tmp.sep.lengthSq() > 1e-8) {
 fish.position.copy(p);
 fish.quaternion.copy(tmp.quat);
 
-// Tail thrust + glow from forward acceleration (no oscillation)
-const tail = fishTails[i];
+    // Tail thrust + glow from forward acceleration (no oscillation)
+    const tail = fishTails[i];
 
-// Forward thrust: only positive (accelerating forward)
-const f = aForwardSm[i];
-const fPos = Math.max(0, f);
+    // Forward thrust: only positive (accelerating forward)
+    const f = aForwardSm[i];
+    const fPos = Math.max(0, f);
 
-// Map forward accel to 0..1
-const fCap = 2.0; // more sensitive cap (units/s^2)
-const thrust = Math.min(fPos, fCap) / fCap;
+    // Map forward accel to 0..1
+    const fCap = 2.0; // more sensitive cap (units/s^2)
+    const thrust = Math.min(fPos, fCap) / fCap;
 
-// Tail length and glow (StandardMaterial)
-tail.scale.set(1, 0.75 + 2.2 * thrust, 1);
-tail.material.emissiveIntensity = 0.35 + 4.0 * thrust;
+    // Tail length and glow (StandardMaterial)
+    tail.scale.set(1, 0.75 + 2.2 * thrust, 1);
+    tail.material.emissiveIntensity = 0.35 + 4.0 * thrust;
 
-// Strong banking indicator from lateral acceleration (amplified)
-const lat = aLateralSm[i];
-const latCap = 2.5; // more sensitive cap
-const latNorm = Math.max(-latCap, Math.min(latCap, lat)) / latCap;
+    // Strong banking indicator from lateral acceleration (amplified)
+    const lat = aLateralSm[i];
+    const latCap = 2.5; // more sensitive cap
+    const latNorm = Math.max(-latCap, Math.min(latCap, lat)) / latCap;
 
-// Visible bank angle (radians). Increase gain for clarity.
-const bankMax = 1.05; // stronger indicator (~60 degrees)
-const bank = -latNorm * bankMax;
+    // Visible bank angle (radians). Increase gain for clarity.
+    const bankMax = 1.05; // stronger indicator (~60 degrees)
+    const bank = -latNorm * bankMax;
 
-// Apply bank around forward axis (local +Y after alignment)
-fish.rotateY(bank);
-      }
+    // Apply bank around forward axis (local +Y after alignment)
+    fish.rotateY(bank);
+          }
     }
 
+    function updateCameraForHud() {
+      const hud = document.getElementById("hud");
+      const hudH = hud ? hud.getBoundingClientRect().height : 0;
+
+      // EN: Fraction of the screen not covered by the HUD.
+      const bottomPad = 16; // px safety margin
+      const visibleFrac = clamp(1 - (hudH + bottomPad) / window.innerHeight, 0.35, 1.0);
+
+      // EN: Desired camera distance from target, adjusted for HUD and manual zoom.
+      const targetDist = (params.baseCamZ / visibleFrac) * params.viewZoom;
+
+      // EN: Keep the current viewing direction, only change the distance along it.
+      // Camera is looking at origin => direction to target is (target - position).  // EN: Camera always zooms relative to the simulation center (world origin).
+      const target = params.center;
+      const toTarget = new THREE.Vector3().subVectors(target, camera.position);
+      if (toTarget.lengthSq() < 1e-8) toTarget.set(0, 0, -1); // fallback
+
+      toTarget.normalize();
+      camera.position.copy(target).addScaledVector(toTarget, -targetDist); // move backwards from target
+      camera.lookAt(target);
+      // EN: Compensate fog for zoom-out. If camera distance increases, extend fog range proportionally so objects don't "wash out" just because we zoomed out.
+      const zScale = targetDist / params.baseCamZ;
+      scene.fog.near = params.fogNear0 * zScale;
+      scene.fog.far = params.fogFar0 * zScale;
+
+      camera.updateProjectionMatrix();
+    }
 
     // ---------- Resize ----------
     addEventListener("resize", () => {
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
+      updateCameraForHud();
     });
 
     // ---------- Simple touch drag to orbit camera ----------
@@ -772,16 +884,21 @@ fish.rotateY(bank);
     let yaw = 1.5;
     let pitch = 0; // 0 = XY plane straight on
 
-    const camRadius = 22;
+  function updateCamera() {
+    pitch = clamp(pitch, -0.2, 1.2);
 
-    function updateCamera() {
-      pitch = clamp(pitch, -0.2, 1.2);
-      const x = Math.cos(yaw) * Math.cos(pitch) * camRadius;
-      const z = Math.sin(yaw) * Math.cos(pitch) * camRadius;
-      const y = Math.sin(pitch) * camRadius;
-      camera.position.set(x, y, z);
-      camera.lookAt(0, 0, 0);
-    }
+    // EN: Set only the viewing direction using a unit sphere.
+    const x = Math.cos(yaw) * Math.cos(pitch);
+    const z = Math.sin(yaw) * Math.cos(pitch);
+    const y = Math.sin(pitch);
+
+    camera.position.set(x, y, z);
+    camera.lookAt(0, 0, 0);
+
+    // EN: Now apply HUD + viewZoom distance along the current direction.
+    updateCameraForHud();
+  }
+
     updateCamera();
 
     renderer.domElement.addEventListener("pointerdown", (e) => {
