@@ -4,10 +4,10 @@
         {
             "id": "fish school v4",
             "title": "simulation of fish school v4.x",
-            "path": "./parvisimul/kalat-v3.95.html",
-            "thumb": "/assets/Fish-v3.6.png",
+            "path": "./parvisimul/kalat-v4.html",
+            "thumb": "/assets/Fish-v4.png",
             "status": "WIP",
-            "description": "fish simul v3.6. ring motion, but two swarms...",
+            "description": "fish simul v4.0. nice loose swarm",
             "tags": [
                 "3D",
                 "simulation",
