@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v4</title>
+  <title>Fish School (Boids) – v4.1</title>
   <style>
     html,
     body {
@@ -30,11 +30,11 @@
       bottom: 12px;
       padding: 10px 12px;
       border-radius: 14px;
-      background: rgba(0, 0, 0, 0.55);
+      background: rgba(0, 0, 0, 0.15);
       color: #fff;
       font: 14px/1.2 -apple-system, system-ui, sans-serif;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
       user-select: none;
       touch-action: manipulation;
     }
@@ -80,7 +80,7 @@
         margin-bottom:8px;
         opacity:0.9;
       ">
-        Fish School v4.0 ------
+        Fish School v4.1 ------
       </div>
 
     <div class="row">
@@ -255,7 +255,7 @@ for (let i = 0; i < N; i++) {
       baseCamZ: 22,     // EN: Manual zoom-out multiplier (UI). 1 = default.
       viewZoom: 1.00,   // EN: Fog baselines (tuned for baseCamZ). We'll scale them with zoom distance.
       fogNear0: 8,
-      fogFar0: 40,
+      fogFar0: 60,
 
       density: 1.10,
       soloIndependence: 0.70,
@@ -270,7 +270,7 @@ for (let i = 0; i < N; i++) {
       // Motion limits (calm)
       maxSpeed: 3.9,   // units/s
       minSpeed: 1.6,   // units/s
-      maxSteer: 1.6,   // units/s^2
+      maxSteer: 3.6,   // units/s^2
 
       // Path following (random smooth closed curve in XY, drawn on screen)
       center: new THREE.Vector3(0, 0, 0),
@@ -536,11 +536,11 @@ for (let i = 0; i < N; i++) {
         aLateralSm[i] = 0;
         noise[i].copy(randomUnitVec3(new THREE.Vector3()));
         noiseTarget[i].copy(randomUnitVec3(new THREE.Vector3()));
-        resampleReactionLags();
 
         flock[i] = 1.0;
         setMode(i, Math.random() < 0.25); // start with some solos
       }
+    resampleReactionLags();
     }
 
     // ---------- UI binding ----------
@@ -595,7 +595,8 @@ for (let i = 0; i < N; i++) {
       sep: new THREE.Vector3(),
       desired: new THREE.Vector3(),
       steer: new THREE.Vector3(),
-      r2: new THREE.Vector3(),
+        r1: new THREE.Vector3(),
+        r2: new THREE.Vector3(),
       tangent: new THREE.Vector3(),
       radial: new THREE.Vector3(),
       toPath: new THREE.Vector3(),
@@ -709,12 +710,27 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // Path leader following: the whole school follows a single moving point on the curve.
         // EN: No nearest-point lookup => no snapping when the curve self-intersects.
         tmp.toPath.copy(leaderPos).sub(p);
-        // EN: Density=0 should allow almost free motion => weaken pull to the path leader.
-        const attractK = params.pathAttractK * (params._pathAttractScale ?? 1.0);
-        tmp.desired.addScaledVector(tmp.toPath, attractK);
 
-        // Forward bias so the school flows along the curve direction
-        tmp.desired.addScaledVector(leaderTan, params.pathSpeed);
+        // EN: Lateral error only (remove forward component)
+        const fwd = leaderTan; // unit
+        tmp.r1.copy(tmp.toPath).addScaledVector(fwd, -tmp.toPath.dot(fwd)); // r1 = lateral error
+        const latDist = tmp.r1.length();
+
+        // EN: Normalize lateral direction but scale its influence by distance (strong when far off)
+        if (latDist > 1e-6) tmp.r1.multiplyScalar(1 / latDist);
+        // EN: Effective attraction gain toward the path (density-scaled)
+        const attractK = params.pathAttractK * (params._pathAttractScale ?? 1.0);
+
+        // EN: When far from the leader line, prioritize lateral correction and reduce forward bias.
+        // kLatGain tunes how aggressively the school returns to the path corridor.
+        const kLatGain = 1.8;                 // try 1.2..3.0
+        const latWeight = attractK * Math.min(latDist, 6.0) * kLatGain;
+
+        tmp.desired.addScaledVector(tmp.r1, latWeight);
+
+        // EN: Gate forward flow by lateral error so fish don't "lock" into an offset orbit.
+        const gate = 1 / (1 + 0.9 * latDist); // latDist=0 => 1, latDist large => smaller
+        tmp.desired.addScaledVector(leaderTan, params.pathSpeed * gate);
 
         // Keep solo fish moving with the flow so they don't lag behind
         if (isSolo[i]) {
