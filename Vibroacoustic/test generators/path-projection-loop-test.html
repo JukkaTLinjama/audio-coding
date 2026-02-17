@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="fi">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fish Path → Horizontal Plane Projection (Y) → Loop + Wave</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            height: 100%;
+            background: #0b0b0b;
+            color: #eee;
+            font-family: system-ui
+        }
+
+        #wrap {
+            display: flex;
+            flex-direction: column;
+            height: 100%
+        }
+
+        #hud {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 10px;
+            background: rgba(0, 0, 0, .4);
+            border-bottom: 1px solid rgba(255, 255, 255, .1)
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            font-size: 12px
+        }
+
+        input[type=range] {
+            width: 200px
+        }
+
+        button {
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: #1b1b1b;
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, .2);
+            cursor: pointer
+        }
+
+        #vals {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            opacity: .85
+        }
+
+        #view {
+            flex: 1;
+            display: flex;
+            flex-direction: column
+        }
+
+        #c {
+            flex: 1
+        }
+
+        #wave {
+            height: 140px;
+            border-top: 1px solid rgba(255, 255, 255, .12);
+            background: rgba(0, 0, 0, .25)
+        }
+
+        canvas {
+            width: 100%;
+            display: block
+        }
+    </style>
+</head>
+
+<body>
+    <div id="wrap">
+        <div id="hud">
+            <button id="btnStart">Start audio</button>
+            <button id="btnNewPath">New path</button>
+
+            <label>Frequency (Hz)
+                <input id="freq" type="range" min="10" max="1000" step="0.1" value="220">
+            </label>
+
+            <label>Volume
+                <input id="vol" type="range" min="0" max="0.3" step="0.001" value="0.10">
+            </label>
+
+            <label>Sharpness (0=raw, 1=soft)
+                <input id="sharp" type="range" min="0" max="1" step="0.001" value="0.10">
+            </label>
+
+            <label>pathRadius
+                <input id="pathRadius" type="range" min="2" max="20" step="0.1" value="7.0">
+            </label>
+
+            <label>pathJitter
+                <input id="pathJitter" type="range" min="0" max="8" step="0.1" value="2.2">
+            </label>
+
+            <label>pathZAmplitude
+                <input id="pathZAmplitude" type="range" min="0" max="12" step="0.1" value="6.0">
+            </label>
+
+            <label>pathControlPoints
+                <input id="pathControlPoints" type="range" min="4" max="16" step="1" value="9">
+            </label>
+
+            <div id="vals"></div>
+        </div>
+
+        <div id="view">
+            <canvas id="c"></canvas>
+            <canvas id="wave"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+        /* -------------------- DOM refs -------------------- */
+        const canvas = document.getElementById("c");
+        const waveCanvas = document.getElementById("wave");
+        const waveCtx = waveCanvas.getContext("2d");
+
+        const btnStart = document.getElementById("btnStart");
+        const btnNewPath = document.getElementById("btnNewPath");
+        const vals = document.getElementById("vals");
+
+        const freq = document.getElementById("freq");
+        const vol = document.getElementById("vol");
+        const sharp = document.getElementById("sharp");
+
+        const pathRadius = document.getElementById("pathRadius");
+        const pathJitter = document.getElementById("pathJitter");
+        const pathZAmplitude = document.getElementById("pathZAmplitude");
+        const pathControlPoints = document.getElementById("pathControlPoints");
+
+        /* -------------------- Three.js scene -------------------- */
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x0b0b0b, 20, 120);
+
+        const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+        // EN: Camera stays fixed. The curve rotates in world space.
+        camera.position.set(0, 10, 34);
+        camera.lookAt(0, 0, 0);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.40));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.90);
+        dirLight.position.set(10, 18, 10);
+        scene.add(dirLight);
+
+        const grid = new THREE.GridHelper(120, 40, 0x222222, 0x141414);
+        grid.position.y = -8;
+        scene.add(grid);
+
+        // EN: Horizontal projection plane (XZ) at y=0
+        const projPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(28, 28),
+            new THREE.MeshBasicMaterial({
+                color: 0x66ffaa,
+                transparent: true,
+                opacity: 0.06,
+                side: THREE.DoubleSide
+            })
+        );
+        projPlane.rotation.x = -Math.PI / 2;
+        projPlane.position.y = 0;
+        scene.add(projPlane);
+
+        // EN: Projection plane normal (+Y)
+        scene.add(new THREE.ArrowHelper(
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, 0, 0),
+            10,
+            0xff66aa
+        ));
+
+        /* -------------------- Fish-style random closed curve -------------------- */
+        let curve = null;
+        let curveObj = null;
+        const curveSamples = 900;
+
+        function buildRandomClosedCurve() {
+            // EN: Jittered loop points around a ring, plus Z thickness.
+            const pts = [];
+            const M = Math.max(4, Math.floor(+pathControlPoints.value));
+            const R = +pathRadius.value;
+            const J = +pathJitter.value;
+            const Z = +pathZAmplitude.value;
+
+            for (let k = 0; k < M; k++) {
+                const a = (k / M) * Math.PI * 2;
+                const r = R + (Math.random() * 2 - 1) * J;
+                const z = (Math.random() * 2 - 1) * Z;
+                pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, z));
+            }
+
+            return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+        }
+
+        function rebuildCurve() {
+            if (curveObj) scene.remove(curveObj);
+
+            curve = buildRandomClosedCurve();
+
+            const geom = new THREE.BufferGeometry();
+            const pos = new Float32Array(curveSamples * 3);
+
+            for (let i = 0; i < curveSamples; i++) {
+                const u = i / curveSamples;
+                const p = curve.getPointAt(u);
+                pos[i * 3 + 0] = p.x;
+                pos[i * 3 + 1] = p.y;
+                pos[i * 3 + 2] = p.z;
+            }
+            geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
+            curveObj = new THREE.LineLoop(
+                geom,
+                new THREE.LineBasicMaterial({ color: 0x88ccff })
+            );
+
+            // EN: Apply current rotation so visuals and audio stay consistent.
+            curveObj.rotation.set(rotPitch, rotYaw, 0);
+
+            scene.add(curveObj);
+        }
+
+        /* -------------------- Curve rotation via pointer drag -------------------- */
+        let dragging = false;
+        let lastX = 0, lastY = 0;
+
+        // EN: Curve rotation (world space). Projection plane stays fixed.
+        let rotYaw = 0;   // around world Y
+        let rotPitch = 0; // around world X
+
+        function applyCurveRotation() {
+            if (!curveObj) return;
+            rotPitch = Math.max(-1.2, Math.min(1.2, rotPitch));
+            curveObj.rotation.set(rotPitch, rotYaw, 0);
+        }
+
+        canvas.addEventListener("pointerdown", (e) => {
+            dragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            canvas.setPointerCapture(e.pointerId);
+        });
+
+        canvas.addEventListener("pointermove", (e) => {
+            if (!dragging) return;
+            const dx = e.clientX - lastX;
+            const dy = e.clientY - lastY;
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            rotYaw -= dx * 0.005;
+            rotPitch -= dy * 0.005;
+            applyCurveRotation();
+        });
+
+        canvas.addEventListener("pointerup", (e) => {
+            dragging = false;
+            try { canvas.releasePointerCapture(e.pointerId); } catch { }
+            rebuildLoopBufferIfOn(); // EN: rebuild after drag end (not continuously)
+        });
+
+        canvas.addEventListener("pointercancel", () => { dragging = false; });
+
+        /* -------------------- Audio (loop from projected curve) -------------------- */
+        let ctx = null;
+        let gainNode = null;
+        let src = null;
+        let isOn = false;
+
+        const baseHz = 1;
+        // EN: Horizontal plane normal (+Y). Waveform is "height" over the floor plane.
+        const projNormal = new THREE.Vector3(0, 1, 0);
+
+        function initAudio() {
+            if (ctx) return;
+            ctx = new (window.AudioContext || window.webkitAudioContext)();
+            gainNode = ctx.createGain();
+            gainNode.gain.value = +vol.value;
+            gainNode.connect(ctx.destination);
+        }
+
+        function drawWave(buffer) {
+            const w = waveCanvas.clientWidth | 0;
+            const h = 140;
+
+            waveCanvas.height = h;
+            if (waveCanvas.width !== w) waveCanvas.width = w;
+
+            waveCtx.clearRect(0, 0, w, h);
+
+            // center line
+            waveCtx.beginPath();
+            waveCtx.moveTo(0, h * 0.5);
+            waveCtx.lineTo(w, h * 0.5);
+            waveCtx.strokeStyle = "rgba(255,255,255,.15)";
+            waveCtx.stroke();
+
+            // waveform
+            const data = buffer.getChannelData(0);
+            const step = Math.max(1, Math.floor(data.length / w));
+
+            waveCtx.beginPath();
+            for (let x = 0; x < w; x++) {
+                const v = data[x * step] || 0;
+                const y = (h * 0.5) - v * (h * 0.42);
+                if (x === 0) waveCtx.moveTo(x, y);
+                else waveCtx.lineTo(x, y);
+            }
+            waveCtx.strokeStyle = "rgba(120,200,255,.9)";
+            waveCtx.lineWidth = 1;
+            waveCtx.stroke();
+        }
+
+        function buildBuffer() {
+            // EN: Build 1-second buffer = 1 Hz base cycle. Frequency is playbackRate.
+            const len = ctx.sampleRate;
+            const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+            const ch = buffer.getChannelData(0);
+
+            // EN: Apply the same rotation used for the visible curve.
+            const euler = new THREE.Euler(rotPitch, rotYaw, 0, "XYZ");
+
+            let maxAbs = 1e-9;
+
+            for (let i = 0; i < len; i++) {
+                const u = i / len;
+
+                // NOTE: getPointAt returns a Vector3; we rotate it for audio.
+                const p = curve.getPointAt(u);
+                p.applyEuler(euler);
+
+                // EN: Project onto horizontal plane normal (+Y) => v is the height.
+                const v = p.dot(projNormal); // == p.y
+
+                ch[i] = v;
+                const a = Math.abs(v);
+                if (a > maxAbs) maxAbs = a;
+            }
+
+            // EN: Normalize then optionally soft-clip (sharpness mix).
+            const inv = 1 / maxAbs;
+            const sharpAmt = +sharp.value; // 0..1
+
+            for (let i = 0; i < len; i++) {
+                const x = ch[i] * inv;           // raw normalized
+                const soft = Math.tanh(x * 1.8); // softened
+                ch[i] = (1 - sharpAmt) * x + sharpAmt * soft;
+            }
+
+            drawWave(buffer);
+            return buffer;
+        }
+
+        function start() {
+            initAudio();
+            if (ctx.state === "suspended") ctx.resume();
+
+            if (src) {
+                try { src.stop(); } catch { }
+                try { src.disconnect(); } catch { }
+            }
+
+            src = ctx.createBufferSource();
+            src.buffer = buildBuffer();
+            src.loop = true;
+            src.playbackRate.value = (+freq.value) / baseHz;
+            src.connect(gainNode);
+            src.start();
+
+            isOn = true;
+            btnStart.textContent = "Stop audio";
+        }
+
+        function stop() {
+            if (!src || !ctx) return;
+
+            // EN: Avoid clicks by fading out quickly.
+            gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.03);
+
+            setTimeout(() => {
+                try { src.stop(); } catch { }
+                try { src.disconnect(); } catch { }
+                src = null;
+
+                // restore slider value for next start
+                gainNode.gain.value = +vol.value;
+            }, 80);
+
+            isOn = false;
+            btnStart.textContent = "Start audio";
+        }
+
+        function rebuildLoopBufferIfOn() {
+            if (!isOn || !ctx || !gainNode) return;
+
+            const hz = +freq.value;
+            const buffer = buildBuffer();
+
+            const old = src;
+
+            const next = ctx.createBufferSource();
+            next.buffer = buffer;
+            next.loop = true;
+            next.playbackRate.value = hz / baseHz;
+            next.connect(gainNode);
+
+            // EN: Quick crossfade-ish: dip gain, swap, restore.
+            const now = ctx.currentTime;
+            const g = +vol.value;
+
+            gainNode.gain.setTargetAtTime(0, now, 0.02);
+            setTimeout(() => {
+                try { if (old) old.stop(); } catch { }
+                try { if (old) old.disconnect(); } catch { }
+
+                src = next;
+                next.start();
+
+                gainNode.gain.setTargetAtTime(g, ctx.currentTime, 0.03);
+            }, 50);
+        }
+
+        /* -------------------- UI wiring -------------------- */
+        btnStart.onclick = () => (isOn ? stop() : start());
+
+        btnNewPath.onclick = () => {
+            rebuildCurve();
+            rebuildLoopBufferIfOn();
+        };
+
+        vol.oninput = () => {
+            if (gainNode && ctx) gainNode.gain.setTargetAtTime(+vol.value, ctx.currentTime, 0.03);
+        };
+
+        freq.oninput = () => {
+            if (src && ctx) src.playbackRate.setTargetAtTime((+freq.value) / baseHz, ctx.currentTime, 0.03);
+        };
+
+        sharp.oninput = () => rebuildLoopBufferIfOn();
+
+        // EN: Debounced rebuild for path params to avoid heavy rebuild while sliding.
+        let pathTimer = null;
+        function schedulePathRebuild() {
+            if (pathTimer) clearTimeout(pathTimer);
+            pathTimer = setTimeout(() => {
+                rebuildCurve();
+                rebuildLoopBufferIfOn();
+            }, 140);
+        }
+        [pathRadius, pathJitter, pathZAmplitude, pathControlPoints].forEach((sl) => {
+            sl.oninput = schedulePathRebuild;
+        });
+
+        /* -------------------- Render loop -------------------- */
+        function resize() {
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+        }
+        window.addEventListener("resize", resize);
+
+        function updateHUD() {
+            vals.textContent =
+                `rotYaw=${rotYaw.toFixed(2)} rotPitch=${rotPitch.toFixed(2)}  projPlane=horizontal (n=+Y)`;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            resize();
+            updateHUD();
+            renderer.render(scene, camera);
+        }
+
+        /* -------------------- Init -------------------- */
+        rebuildCurve();
+        applyCurveRotation();
+        animate();
+    </script>
+</body>
+
+</html>

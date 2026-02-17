@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="fi">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>3D Projection Generator (Test)</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 16px;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            font-size: 12px;
+            gap: 6px;
+        }
+
+        input[type="range"] {
+            width: 280px;
+        }
+
+        canvas {
+            width: 100%;
+            max-width: 980px;
+            height: 160px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        button {
+            padding: 10px 14px;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="row">
+        <button id="toggle">Start audio</button>
+
+        <label>periodSec
+            <input id="periodSec" type="range" min="2" max="60" step="0.1" value="18">
+            <div class="mono" id="periodSecVal"></div>
+        </label>
+
+        <label>thetaSpeed (rad/s)
+            <input id="thetaSpeed" type="range" min="0" max="2" step="0.001" value="0.22">
+            <div class="mono" id="thetaSpeedVal"></div>
+        </label>
+
+        <label>phiSpeed (rad/s)
+            <input id="phiSpeed" type="range" min="0" max="1" step="0.001" value="0.07">
+            <div class="mono" id="phiSpeedVal"></div>
+        </label>
+
+        <label>phiAmp (rad)
+            <input id="phiAmp" type="range" min="0" max="1.2" step="0.001" value="0.5">
+            <div class="mono" id="phiAmpVal"></div>
+        </label>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+        <label>fMin (Hz)
+            <input id="fMin" type="range" min="10" max="80" step="0.1" value="28">
+            <div class="mono" id="fMinVal"></div>
+        </label>
+
+        <label>fMax (Hz)
+            <input id="fMax" type="range" min="10" max="120" step="0.1" value="55">
+            <div class="mono" id="fMaxVal"></div>
+        </label>
+
+        <label>gainMax
+            <input id="gainMax" type="range" min="0" max="0.3" step="0.001" value="0.12">
+            <div class="mono" id="gainMaxVal"></div>
+        </label>
+
+        <label>projScale
+            <input id="projScale" type="range" min="0.2" max="20" step="0.01" value="6.0">
+            <div class="mono" id="projScaleVal"></div>
+        </label>
+    </div>
+
+    <p class="mono" id="readout"></p>
+    <canvas id="scope" width="980" height="160"></canvas>
+
+    <script>
+        (() => {
+            // ---------- UI helpers ----------
+            const $ = (id) => document.getElementById(id);
+
+            const ui = {
+                toggle: $("toggle"),
+                scope: $("scope"),
+                readout: $("readout"),
+
+                periodSec: $("periodSec"),
+                thetaSpeed: $("thetaSpeed"),
+                phiSpeed: $("phiSpeed"),
+                phiAmp: $("phiAmp"),
+
+                fMin: $("fMin"),
+                fMax: $("fMax"),
+                gainMax: $("gainMax"),
+                projScale: $("projScale"),
+
+                periodSecVal: $("periodSecVal"),
+                thetaSpeedVal: $("thetaSpeedVal"),
+                phiSpeedVal: $("phiSpeedVal"),
+                phiAmpVal: $("phiAmpVal"),
+
+                fMinVal: $("fMinVal"),
+                fMaxVal: $("fMaxVal"),
+                gainMaxVal: $("gainMaxVal"),
+                projScaleVal: $("projScaleVal"),
+            };
+
+            function syncLabels() {
+                ui.periodSecVal.textContent = Number(ui.periodSec.value).toFixed(2);
+                ui.thetaSpeedVal.textContent = Number(ui.thetaSpeed.value).toFixed(3);
+                ui.phiSpeedVal.textContent = Number(ui.phiSpeed.value).toFixed(3);
+                ui.phiAmpVal.textContent = Number(ui.phiAmp.value).toFixed(3);
+
+                ui.fMinVal.textContent = Number(ui.fMin.value).toFixed(1);
+                ui.fMaxVal.textContent = Number(ui.fMax.value).toFixed(1);
+                ui.gainMaxVal.textContent = Number(ui.gainMax.value).toFixed(3);
+                ui.projScaleVal.textContent = Number(ui.projScale.value).toFixed(2);
+            }
+            ["input", "change"].forEach(ev => {
+                ui.periodSec.addEventListener(ev, syncLabels);
+                ui.thetaSpeed.addEventListener(ev, syncLabels);
+                ui.phiSpeed.addEventListener(ev, syncLabels);
+                ui.phiAmp.addEventListener(ev, syncLabels);
+                ui.fMin.addEventListener(ev, syncLabels);
+                ui.fMax.addEventListener(ev, syncLabels);
+                ui.gainMax.addEventListener(ev, syncLabels);
+                ui.projScale.addEventListener(ev, syncLabels);
+            });
+            syncLabels();
+
+            // ---------- Math: 3D periodic curve + rotating projection normal ----------
+            const TWO_PI = Math.PI * 2;
+
+            function curve3D(u) {
+                // EN: Periodic 3D Lissajous. u in [0,1)
+                // You can change these integer ratios to reshape the orbit.
+                const x = Math.sin(TWO_PI * 1 * u);
+                const y = Math.sin(TWO_PI * 2 * u + 0.3);
+                const z = Math.sin(TWO_PI * 3 * u + 1.1);
+                return { x, y, z };
+            }
+
+            function normalFromAngles(theta, phi) {
+                // EN: Unit normal from spherical angles.
+                const cp = Math.cos(phi), sp = Math.sin(phi);
+                const ct = Math.cos(theta), st = Math.sin(theta);
+                const x = cp * ct;
+                const y = cp * st;
+                const z = sp;
+                const len = Math.hypot(x, y, z) || 1;
+                return { x: x / len, y: y / len, z: z / len };
+            }
+
+            function dot(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+            function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+            // ---------- Audio ----------
+            const audio = {
+                ctx: null,
+                osc: null,
+                gain: null,
+                isOn: false,
+
+                // EN: smoothing time constants
+                freqTau: 0.08,
+                gainTau: 0.10,
+            };
+
+            function initAudioIfNeeded() {
+                if (audio.ctx) return;
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+
+                osc.type = "sine";
+                osc.frequency.value = 35;
+                g.gain.value = 0;
+
+                osc.connect(g).connect(ctx.destination);
+                osc.start();
+
+                audio.ctx = ctx;
+                audio.osc = osc;
+                audio.gain = g;
+            }
+
+            // ---------- Simple scope (draws projected control signal x(t)) ----------
+            const scope = {
+                ctx: ui.scope.getContext("2d"),
+                buf: new Float32Array(980),
+                w: ui.scope.width,
+                h: ui.scope.height,
+                idx: 0,
+            };
+
+            function pushScope(x) {
+                scope.buf[scope.idx] = x;
+                scope.idx = (scope.idx + 1) % scope.buf.length;
+            }
+
+            function drawScope() {
+                const g = scope.ctx;
+                const w = scope.w, h = scope.h;
+
+                g.clearRect(0, 0, w, h);
+                g.beginPath();
+
+                // EN: draw center line
+                g.moveTo(0, h / 2); g.lineTo(w, h / 2);
+                g.strokeStyle = "#ddd";
+                g.stroke();
+
+                // EN: signal
+                g.beginPath();
+                for (let i = 0; i < scope.buf.length; i++) {
+                    const bi = (scope.idx + i) % scope.buf.length;
+                    const x = scope.buf[bi]; // roughly -1..1
+                    const y = (h / 2) - x * (h * 0.40);
+                    if (i === 0) g.moveTo(i, y);
+                    else g.lineTo(i, y);
+                }
+                g.strokeStyle = "#000";
+                g.stroke();
+            }
+
+            // ---------- Main loop ----------
+            let t0 = performance.now();
+
+            function tick() {
+                const tNow = performance.now();
+                const timeSec = (tNow - t0) * 0.001;
+
+                const periodSec = Number(ui.periodSec.value);
+                const u = (timeSec / periodSec) % 1; // EN: closed-loop phase
+
+                // rotating projection normal
+                const thetaSpeed = Number(ui.thetaSpeed.value);
+                const phiSpeed = Number(ui.phiSpeed.value);
+                const phiAmp = Number(ui.phiAmp.value);
+
+                const theta = timeSec * thetaSpeed;
+                const phi = Math.sin(timeSec * phiSpeed) * phiAmp;
+
+                const r = curve3D(u);
+                const n = normalFromAngles(theta, phi);
+
+                const proj = dot(r, n); // EN: projection of 3D point onto normal
+
+                // map to bounded control signal
+                const projScale = Number(ui.projScale.value);
+                const x = Math.tanh(proj / projScale); // about -1..1
+
+                // map to audio params
+                const fMin = Number(ui.fMin.value);
+                const fMax = Number(ui.fMax.value);
+                const gainMax = Number(ui.gainMax.value);
+
+                const norm01 = clamp01(0.5 + 0.5 * x);
+                const f = fMin + (fMax - fMin) * norm01;
+                const g = gainMax * Math.abs(x);
+
+                // Update audio (only if running)
+                if (audio.ctx && audio.isOn) {
+                    const now = audio.ctx.currentTime;
+                    audio.osc.frequency.setTargetAtTime(f, now, audio.freqTau);
+                    audio.gain.gain.setTargetAtTime(g, now, audio.gainTau);
+                }
+
+                // UI readout + scope
+                ui.readout.textContent =
+                    `u=${u.toFixed(3)}  proj=${proj.toFixed(3)}  x=tanh(proj/scale)=${x.toFixed(3)}  f=${f.toFixed(2)}Hz  g=${g.toFixed(3)}`;
+
+                pushScope(x);
+                drawScope();
+
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+
+            // ---------- Start/Stop ----------
+            ui.toggle.addEventListener("click", async () => {
+                initAudioIfNeeded();
+
+                if (audio.ctx.state === "suspended") await audio.ctx.resume();
+
+                audio.isOn = !audio.isOn;
+                ui.toggle.textContent = audio.isOn ? "Stop audio" : "Start audio";
+
+                // EN: when stopping, ramp down to silence to avoid clicks
+                if (!audio.isOn && audio.ctx) {
+                    const now = audio.ctx.currentTime;
+                    audio.gain.gain.setTargetAtTime(0, now, 0.05);
+                }
+            });
+        })();
+    </script>
+</body>
+
+</html>
