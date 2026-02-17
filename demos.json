@@ -15,29 +15,42 @@
             ]
         },
         {
-            "id": "vibro-keyboard-2",
-            "title": "Vibroacoustic keyboard v2.4",
-            "path": "./Vibroacoustic/vibro-keyboard-v2.4.html",
+            "id": "vibro-keyboard-3",
+            "title": "Vibroacoustic keyboard v3",
+            "path": "./Vibroacoustic/vibro-keyboard-v3.html",
             "thumb": "/assets/vibro-keyboard-2.4.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping rec/play functionality.",
             "tags": [
-                "vibro",
-                "lf",
+                "vibrotactile", "lf",
                 "web-audio"
             ]
         },
         {
             "id": "vibro-keyboard",
-            "title": "Vibroacoustic keyboard 1",
-            "path": "./Vibroacoustic/vibro-keyboard1.html",
-            "thumb": "/assets/vibro-keyboard.png",
+            "title": "Vibroacoustic keyboard v2",
+            "path": "./Vibroacoustic/docs/vibro-keyboard-v2.8.html",
+            "thumb": "/assets/vibro-keyboard-2.4.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. ",
             "tags": [
                 "vibro",
                 "lf",
                 "web-audio"
+            ]
+
+        },
+        {
+            "id": "timescales visualisation 2025",
+            "title": "History timescale visualisation v50.2",
+            "path": "https://jukkatlinjama.github.io/timescale_dev/",
+            "thumb": "/assets/timeline_v49.9.png",
+            "status": "WIP",
+            "description": "A vertical, zoomable logarithmic timeline of key events from the Big Bang to the present (2026).",
+            "tags": [
+                "visualisation",
+                "history event themes",
+                "json database"
             ]
         }
     ]
