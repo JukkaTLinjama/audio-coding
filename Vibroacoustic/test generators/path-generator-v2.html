@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Fish Path → Horizontal Plane Projection (Y) → Loop + Wave</title>
+    <title>Path loop gen v2</title>
     <style>
         html,
         body {
@@ -68,14 +68,26 @@
 
         #wave {
             height: 140px;
-            border-top: 1px solid rgba(255, 255, 255, .12);
-            background: rgba(0, 0, 0, .25)
+            border-top: 1px solid rgba(255, 255, 255, 0.121);
+            background: rgba(67, 66, 66, 0.25);
+              width:calc(100% - 40px);   /* 20px margin per side */
+            margin:0 20px;
+            display:block;
         }
 
         canvas {
             width: 100%;
             display: block
         }
+
+        #versionInfo{
+        font-size:12px;
+        opacity:0.65;
+        padding:10px 14px 16px 14px;
+        border-top:1px solid rgba(255,255,255,.06);
+        line-height:1.4;
+        }
+
     </style>
 </head>
 
@@ -95,6 +107,17 @@
 
             <label>Sharpness (0=raw, 1=soft)
                 <input id="sharp" type="range" min="0" max="1" step="0.001" value="0.10">
+            </label>
+            <label>Impact mode
+                <input id="impactOn" type="checkbox" checked>
+            </label>
+            
+            <label>Impact gain
+                <input id="impactGain" type="range" min="0" max="6" step="0.01" value="2.0">
+            </label>
+            
+            <label>Impact width (samples)
+                <input id="impactWidth" type="range" min="1" max="64" step="1" value="8">
             </label>
 
             <label>pathRadius
@@ -119,13 +142,27 @@
         <div id="view">
             <canvas id="c"></canvas>
             <canvas id="wave"></canvas>
+            <div id="versionInfo"></div>
         </div>
+
     </div>
 
     <script type="module">
         import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
         /* -------------------- DOM refs -------------------- */
+    // EN: Use document <title> as main heading source.
+        const pageTitle = document.title;
+
+        const GEN_DESCRIPTION =
+            "3D closed Catmull-Rom path projected onto fixed horizontal plane (n=+Y). " +
+            "Loop buffer generated from height signal with optional impact transients.";
+
+        versionInfo.innerHTML = `
+        <strong>${pageTitle}</strong><br>
+        ${GEN_DESCRIPTION}
+        `;
+
         const canvas = document.getElementById("c");
         const waveCanvas = document.getElementById("wave");
         const waveCtx = waveCanvas.getContext("2d");
@@ -142,6 +179,14 @@
         const pathJitter = document.getElementById("pathJitter");
         const pathZAmplitude = document.getElementById("pathZAmplitude");
         const pathControlPoints = document.getElementById("pathControlPoints");
+
+        const impactOn = document.getElementById("impactOn");
+        const impactGain = document.getElementById("impactGain");
+        const impactWidth = document.getElementById("impactWidth");
+
+        impactOn.oninput = () => rebuildLoopBufferIfOn();
+        impactGain.oninput = () => rebuildLoopBufferIfOn();
+        impactWidth.oninput = () => rebuildLoopBufferIfOn();
 
         /* -------------------- Three.js scene -------------------- */
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -296,7 +341,7 @@
             gainNode.connect(ctx.destination);
         }
 
-        function drawWave(buffer) {
+    function drawWave(buffer) {
             const w = waveCanvas.clientWidth | 0;
             const h = 140;
 
@@ -305,26 +350,68 @@
 
             waveCtx.clearRect(0, 0, w, h);
 
-            // center line
+            const data = buffer.getChannelData(0);
+            const N = data.length;
+
+            // EN: Remove DC only for display so the plot is centered.
+            // (Impact pulses add positive DC, which makes the plot look "too low/high".)
+            const scanStep = Math.max(1, Math.floor(N / 4000));
+
+            let sum = 0;
+            let cnt = 0;
+            for (let i = 0; i < N; i += scanStep) {
+                sum += data[i];
+                cnt++;
+            }
+            const mean = sum / Math.max(1, cnt);
+
+            // EN: Find max abs after DC removal (fast scan).
+            let maxAbs = 1e-9;
+            for (let i = 0; i < N; i += scanStep) {
+                const a = Math.abs(data[i] - mean);
+                if (a > maxAbs) maxAbs = a;
+            }
+
+            // EN: Headroom to keep peaks inside the box
+            const headroom = 1.15;
+            const scaleY = (h * 0.42) / (maxAbs * headroom);
+
+            // --- 0-level line (true zero, centered in display after DC removal) ---
             waveCtx.beginPath();
             waveCtx.moveTo(0, h * 0.5);
             waveCtx.lineTo(w, h * 0.5);
-            waveCtx.strokeStyle = "rgba(255,255,255,.15)";
+            waveCtx.strokeStyle = "rgba(255,255,255,.22)";
+            waveCtx.lineWidth = 1;
             waveCtx.stroke();
 
-            // waveform
-            const data = buffer.getChannelData(0);
-            const step = Math.max(1, Math.floor(data.length / w));
-
+            // --- mean line (shows DC offset in the actual buffer) ---
+            const meanY = (h * 0.5) - (mean * scaleY);
             waveCtx.beginPath();
+            waveCtx.moveTo(0, meanY);
+            waveCtx.lineTo(w, meanY);
+            waveCtx.strokeStyle = "rgba(255,180,180,.20)";
+            waveCtx.lineWidth = 1;
+            waveCtx.stroke();
+
+            // --- waveform, include BOTH endpoints to avoid "missing start/end" ---
+            waveCtx.beginPath();
+            const Wm1 = Math.max(1, w - 1);
             for (let x = 0; x < w; x++) {
-                const v = data[x * step] || 0;
-                const y = (h * 0.5) - v * (h * 0.42);
+                const i = Math.round((x / Wm1) * (N - 1)); // ensures last pixel hits N-1
+                const v = (data[i] - mean);
+                const y = (h * 0.5) - v * scaleY;
                 if (x === 0) waveCtx.moveTo(x, y);
                 else waveCtx.lineTo(x, y);
             }
             waveCtx.strokeStyle = "rgba(120,200,255,.9)";
             waveCtx.lineWidth = 1;
+            waveCtx.stroke();
+
+            // --- wrap marker at x=0 (optional visual cue) ---
+            waveCtx.beginPath();
+            waveCtx.moveTo(0, 0);
+            waveCtx.lineTo(0, h);
+            waveCtx.strokeStyle = "rgba(255,255,255,.06)";
             waveCtx.stroke();
         }
 
@@ -339,28 +426,51 @@
 
             let maxAbs = 1e-9;
 
+            // --- 1) sample height signal s[i] = y(u) ---
+            const s = new Float32Array(len);
             for (let i = 0; i < len; i++) {
                 const u = i / len;
-
-                // NOTE: getPointAt returns a Vector3; we rotate it for audio.
                 const p = curve.getPointAt(u);
                 p.applyEuler(euler);
-
-                // EN: Project onto horizontal plane normal (+Y) => v is the height.
-                const v = p.dot(projNormal); // == p.y
-
-                ch[i] = v;
-                const a = Math.abs(v);
-                if (a > maxAbs) maxAbs = a;
+                s[i] = p.y;
             }
 
-            // EN: Normalize then optionally soft-clip (sharpness mix).
-            const inv = 1 / maxAbs;
-            const sharpAmt = +sharp.value; // 0..1
+            // --- 2) base signal is height (will be normalized later) ---
+            for (let i = 0; i < len; i++) ch[i] = s[i];
 
+            // --- 3) impact pulses on plane crossings (y changes sign) ---
+            if (impactOn.checked) {
+                const k = +impactGain.value;                 // impact strength
+                const W = Math.max(1, (+impactWidth.value) | 0); // pulse half-width in samples
+
+                // EN: Add a short triangular pulse centered at crossing index.
+                for (let i = 0; i < len; i++) {
+                    const iPrev = (i - 1 + len) % len;
+                    const y0 = s[iPrev];
+                    const y1 = s[i];
+
+                    // crossing if sign changes (includes passing through 0)
+                    if ((y0 <= 0 && y1 > 0) || (y0 >= 0 && y1 < 0)) {
+                       // EN: Convert per-sample delta into per-cycle slope (~dy/du)
+                        const speed = Math.abs(y1 - y0) * len;
+
+                        // EN: Optional: make impacts stronger at higher playback rate
+                        // EN: Don't scale by playbackRate here; it makes impacts dominate at higher Hz.
+                        const amp = (+impactGain.value) * speed;
+
+                        for (let j = -W; j <= W; j++) {
+                            const idx = (i + j + len) % len;
+                            const w = 1 - (Math.abs(j) / (W + 1)); // triangular weight 1..0
+                            ch[idx] += amp * w;
+                        }
+                    }
+                }
+            }
+            // --- 4) sharpness shaping (optional soft clip) ---
+            const sharpAmt = +sharp.value;
             for (let i = 0; i < len; i++) {
-                const x = ch[i] * inv;           // raw normalized
-                const soft = Math.tanh(x * 1.8); // softened
+                const x = ch[i];               // already roughly normalized
+                const soft = Math.tanh(x * 1.8);
                 ch[i] = (1 - sharpAmt) * x + sharpAmt * soft;
             }
 
