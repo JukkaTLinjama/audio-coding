@@ -17,7 +17,7 @@
         {
             "id": "vibro-keyboard-3",
             "title": "Vibroacoustic keyboard v3",
-            "path": "./Vibroacoustic/vibro-keyboard-v3.html",
+            "path": "./Vibroacoustic/vibro-keyboard-v2.9.html",
             "thumb": "/assets/vibro-keyboard-2.4.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping rec/play functionality.",
@@ -51,6 +51,18 @@
                 "visualisation",
                 "history event themes",
                 "json database"
+            ]
+        },
+        {
+            "id": "loop gen v2.1",
+            "title": "Loop gen v2.1",
+            "path": "Vibroacoustic/test generators/path-generator-v2.1.html",
+            "thumb": "/assets/Path-loop-gen-2.1.png",
+            "status": "WIP",
+            "description": "Sound is treated as a 1D observation of a higher-dimensional geometric system.",
+            "tags": [
+                "visualisation",
+                "web-audio"
             ]
         }
     ]
