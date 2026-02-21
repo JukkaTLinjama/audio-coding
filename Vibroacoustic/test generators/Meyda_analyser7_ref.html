@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        canvas {
+            border: 1px solid #333;
+            margin: 10px 0;
+        }
+        #controls {
+            display: flex;
+            flex-direction: row;
+            gap: 20px; /* Space between columns */
+        }
+
+        .slider-column {
+            display: flex;
+            flex-direction: column;
+            gap: 8px; /* Space between sliders within each column */
+        }
+
+        #controls label {
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        input[type="range"] {
+            height: 10px; /* Adjust for smaller slider height */
+        }
+        
+            /* New styles for the scaling factor and wavelet info */
+        #infoContainer {
+            display: flex;
+            flex-direction: column;
+            gap: 8px; /* Space between scaling factor and wavelet info */
+            margin-bottom: 10px; /* Add some spacing from the sliders */
+        }
+
+        #waveletInfo {
+            font-size: 0.9em; /* Slightly smaller font for wavelet info */
+            color: #333;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Wavelet Audio Meyda Analyzer 7 w buffer sync</h1>
+    <div id="controls">
+        <button id="toggleButton">Start</button>
+        
+        <div class="slider-column">
+            <!-- Scaling Factor and Wavelet Info -->
+            <div id="infoContainer">
+                <label>Scaling Factor: <span id="scalingFactorDisplay">1.0</span></label>
+                <div id="waveletInfo">
+                    <p>Wavelet Length: 
+                        <span id="waveletLengthSamples">0</span> samples / 
+                        <span id="waveletLengthMs">0</span> ms
+                    </p>
+                </div>
+            </div>
+    
+            <!-- Playback Rate -->
+            <label>Playback Rate:
+                <input type="range" id="playbackRateSlider" min="0.05" max="2" step="0.05" value="0.5">
+                <span id="playbackRateValue">0.5x</span>
+            </label>
+    
+            <!-- Mix Factor -->
+            <label>Mix Factor:
+                <input type="range" id="mixFactorSlider" min="0" max="1" step="0.01" value="0.5">
+                <span id="mixFactorValue">0.50</span>
+            </label>
+
+            <!-- Other sliders in the first column -->
+            <label>Master Volume:
+                <input type="range" id="masterVolumeSlider" min="0" max="1" step="0.01" value="0.5">
+                <span id="masterVolumeValue">0.5</span>
+            </label>
+                    
+
+        </div>
+    
+        <div class="slider-column">
+            <!-- Column 2 sliders -->
+            <label>Base Length:
+                <input type="range" id="baseLengthSlider" min="50" max="500" step="10" value="100">
+                <span id="baseLengthValue">100</span>
+            </label>
+            <label>Base Frequency:
+                <input type="range" id="baseFrequencySlider" min="1" max="20" step="1" value="5">
+                <span id="baseFrequencyValue">5</span> Hz
+            </label>
+            <label>Frequency Variation:
+                <input type="range" id="freqVariationSlider" min="0" max="10" step="0.1" value="2">
+                <span id="freqVariationValue">2</span> Hz
+            </label>
+
+            <label>Base Tau:
+                <input type="range" id="baseTauSlider" min="0.1" max="1" step="0.1" value="0.5">
+                <span id="baseTauValue">0.5</span>
+            </label>
+            <label>Tau Variation:
+                <input type="range" id="tauVariationSlider" min="0" max="2" step="0.05" value="0.2">
+                <span id="tauVariationValue">0.2</span>
+            </label>
+            <label>Number of Wavelets:
+                <input type="range" id="numWaveletsSlider" min="1" max="50" step="1" value="10">
+                <span id="numWaveletsValue">10</span>
+            </label>
+            <label>Overlap Percent:
+                <input type="range" id="overlapPercentSlider" min="0" max="100" step="5" value="50">
+                <span id="overlapPercentValue">50</span>%
+            </label>
+        </div>
+    </div>
+    
+    <canvas id="timeCanvas" width="800" height="200"></canvas>
+    <canvas id="freqCanvas" width="800" height="200"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
+    <script>
+
+// Initialize wavelet parameters
+let baseLength = 240;
+let baseFrequency = 3;
+let freqVariation = 2;
+let baseTau = 0.5;
+let tauVariation = 0.5;
+let numWavelets = 10;
+let overlapPercent = 50;
+
+let audioContext, analyser, meydaAnalyzer, bufferSourceNode;
+let renderInterval; // To store the wavelet interval reference
+let isPlaying = false; // Playback state
+let bufferStarted = false;
+let masterGain; // Master volume control
+let variantFactor = 0.4  // wavelet variant var
+let mixFactor = 0.5; // Default mix factor
+
+document.getElementById("mixFactorSlider").addEventListener("input", (event) => {
+    mixFactor = parseFloat(event.target.value);
+    document.getElementById("mixFactorValue").textContent = mixFactor.toFixed(2);
+
+    if (isPlaying) {
+        // Generate updated mixed wavelet and apply to the audio buffer
+        const { waveletX: originalWavelet } = generateWavelet(
+            baseLength,
+            baseFrequency,
+            freqVariation,
+            baseTau,
+            tauVariation,
+            numWavelets,
+            overlapPercent
+        );
+        const variantWavelet = generateWaveletVariant(originalWavelet, variantFactor);
+        const mixedWavelet = mixWavelet(originalWavelet, variantWavelet, mixFactor);
+
+        // Dynamically update the buffer without stopping playback
+        updateBufferLive(mixedWavelet);
+    }
+});
+
+
+// Update slider display values
+function updateSliderValues() {
+    document.getElementById("baseLengthValue").textContent = baseLength;
+    document.getElementById("baseFrequencyValue").textContent = baseFrequency;
+    document.getElementById("freqVariationValue").textContent = freqVariation;
+    document.getElementById("baseTauValue").textContent = baseTau;
+    document.getElementById("tauVariationValue").textContent = tauVariation;
+    document.getElementById("numWaveletsValue").textContent = numWavelets;
+    document.getElementById("overlapPercentValue").textContent = overlapPercent;
+}
+
+// Event listener for master volume slider
+document.getElementById("masterVolumeSlider").oninput = (e) => {
+    const volume = +e.target.value;
+    masterGain.gain.value = volume; // Adjust master volume in real time
+    document.getElementById("masterVolumeValue").textContent = volume.toFixed(2);
+};
+
+// Function to attach event listeners to sliders for updating wavelet parameters
+const attachSliderListener = (id, callback) => {
+    document.getElementById(id).oninput = (e) => {
+        callback(+e.target.value);
+        updateSliderValues();
+        isPlaying && generateAndUpdateWavelet();
+    };
+};
+
+// Attach event listeners to relevant sliders
+attachSliderListener("baseLengthSlider", (value) => baseLength = parseInt(value));
+attachSliderListener("baseFrequencySlider", (value) => baseFrequency = value);
+attachSliderListener("freqVariationSlider", (value) => freqVariation = value);
+attachSliderListener("baseTauSlider", (value) => baseTau = value);
+attachSliderListener("tauVariationSlider", (value) => tauVariation = value);
+attachSliderListener("numWaveletsSlider", (value) => numWavelets = parseInt(value));
+attachSliderListener("overlapPercentSlider", (value) => overlapPercent = parseInt(value));
+
+// Toggle playback on Start/Stop button click
+document.getElementById("toggleButton").addEventListener("click", () => {
+    if (isPlaying) {
+        stopPlayback();
+    } else {
+        startPlayback();
+    }
+});
+
+// Update playback rate and restart playback with new rate if playing
+document.getElementById("playbackRateSlider").addEventListener("input", (event) => {
+    const playbackRate = parseFloat(event.target.value);
+    document.getElementById("playbackRateValue").textContent = `${playbackRate.toFixed(1)}x`;
+
+    if (isPlaying && bufferSourceNode) {
+        bufferSourceNode.playbackRate.setValueAtTime(playbackRate, audioContext.currentTime);
+
+        // Adjust the rendering interval timing dynamically
+        const { waveletX: currentWavelet } = generateWavelet(
+            baseLength,
+            baseFrequency,
+            freqVariation,
+            baseTau,
+            tauVariation,
+            numWavelets,
+            overlapPercent
+        );
+
+        startSynchronizedRendering(currentWavelet, playbackRate);
+    }
+});
+
+
+// Initial call to set slider labels
+updateSliderValues();
+generateAndUpdateWavelet(); // Initial wavelet generation
+
+
+/////////////////////////    functions     //////////////////////////////////////////////////////////////////
+
+// function to display wavelet info
+function updateWaveletLengthInfo(waveletX, playbackRate) {
+    if (!audioContext || !waveletX || playbackRate <= 0) {
+        console.error("Invalid input to updateWaveletLengthInfo");
+        return;
+    }
+
+    // Calculate length in samples
+    const lengthInSamples = waveletX.length;
+
+    // Convert to milliseconds, considering playback rate
+    const sampleRate = audioContext.sampleRate || 44100; // Fallback to default 44.1kHz
+    const lengthInMs = (lengthInSamples / (sampleRate * playbackRate)) * 1000;
+
+    // Update the UI
+    document.getElementById("waveletLengthSamples").textContent = lengthInSamples;
+    document.getElementById("waveletLengthMs").textContent = lengthInMs.toFixed(2);
+}
+// function wavelt duration in ms
+function getWaveletDurationInMs(waveletX, playbackRate) {
+    if (!waveletX || !audioContext || playbackRate <= 0) {
+        console.error("Invalid parameters for calculating wavelet duration.");
+        return 0;
+    }
+
+    // Calculate duration in milliseconds
+    const lengthInSamples = waveletX.length;
+    const sampleRate = audioContext.sampleRate || 44100; // Default to 44.1kHz
+    return (lengthInSamples / (sampleRate * playbackRate)) * 1000;
+}
+
+function updateRenderingLogic(previousWavelet) {
+    // Generate new wavelet and preload it
+    const { waveletX: originalWavelet } = generateWavelet(baseLength, baseFrequency, freqVariation, baseTau, tauVariation, numWavelets, overlapPercent);
+    const variantWavelet = generateWaveletVariant(originalWavelet, variantFactor);
+    const mixedWavelet = mixWavelet(originalWavelet, variantWavelet, mixFactor);
+
+    // Dynamically update the buffer with crossfade
+    updateBufferLive(mixedWavelet);
+
+    console.log("Rendering logic executed with preloaded wavelet.");
+}
+
+function startSynchronizedRendering(waveletX, playbackRate) {
+    if (renderInterval) {
+        clearInterval(renderInterval);
+    }
+
+    const waveletDurationMs = getWaveletDurationInMs(waveletX, playbackRate);
+    if (waveletDurationMs <= 0) {
+        console.error("Invalid wavelet duration. Skipping rendering updates.");
+        return;
+    }
+
+    renderInterval = setInterval(() => {
+        if (!bufferSourceNode || bufferSourceNode.playbackState === 'finished') {
+            updateRenderingLogic(waveletX);
+            console.log(`Buffer updated at ${Date.now()} (synchronized to wavelet playback).`);
+        }
+    }, waveletDurationMs);
+}
+
+
+function stopSynchronizedRendering() {
+    if (renderInterval) {
+        clearInterval(renderInterval);
+        renderInterval = null;
+    }
+}
+
+// function fro audiocontext init
+function initializeAudioContext() {
+    if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+
+        // Create master gain node for overall volume control
+        masterGain = audioContext.createGain();
+        masterGain.gain.value = 0.5; // Initial master volume
+        masterGain.connect(audioContext.destination); // Ensure this is connected to destination
+    }
+}
+
+// Function to Generate wavelet and load it into the buffer for playback and visualization
+function loadWaveletToBuffer(waveletX) {
+    initializeAudioContext(); // Ensure audio context is ready
+
+    // Find the peak amplitude in waveletX
+    const maxAmplitude = Math.max(...waveletX.map(Math.abs));
+    // If the peak amplitude exceeds 1.0, scale the waveform to prevent clipping
+    const scalingFactor = maxAmplitude > 1 ? 1 / maxAmplitude : 1;
+    const normalizedWavelet = waveletX.map(sample => sample * scalingFactor);
+
+    // Update the scaling factor display
+    document.getElementById("scalingFactorDisplay").textContent = scalingFactor.toFixed(2);
+
+    // Create an audio buffer from the normalized waveform data
+    const buffer = audioContext.createBuffer(1, normalizedWavelet.length, audioContext.sampleRate);
+    buffer.copyToChannel(new Float32Array(normalizedWavelet), 0);
+    console.log("Buffer initialized with length:", normalizedWavelet.length);
+
+    bufferSourceNode = audioContext.createBufferSource();
+    bufferSourceNode.buffer = buffer;
+    bufferSourceNode.loop = true;
+    console.log("BufferSourceNode buffer set with sample rate:", audioContext.sampleRate);
+
+    const playbackRate = parseFloat(document.getElementById("playbackRateSlider").value);
+    bufferSourceNode.playbackRate.setValueAtTime(playbackRate, audioContext.currentTime);
+
+    // Connect bufferSourceNode to analyser, then to masterGain
+    bufferSourceNode.connect(analyser);
+    analyser.connect(masterGain);
+}
+
+// Generate wavelet and update function
+function generateAndUpdateWavelet() {
+    if (isPlaying && bufferSourceNode && bufferStarted) {
+        try {
+            bufferSourceNode.stop();
+            bufferSourceNode.disconnect();
+            bufferSourceNode = null;
+            bufferStarted = false;
+        } catch (error) {
+            console.error("Error stopping BufferSourceNode:", error);
+        }
+    }
+
+    // Generate the new wavelet buffer
+    const { waveletX: originalWavelet } = generateWavelet(baseLength, baseFrequency, freqVariation, baseTau, tauVariation, numWavelets, overlapPercent);
+    const variantWavelet = generateWaveletVariant(originalWavelet, variantFactor);
+    const mixedWavelet = mixWavelet(originalWavelet, variantWavelet, mixFactor);
+
+    // Safely update wavelet length info
+    const playbackRate = parseFloat(document.getElementById("playbackRateSlider").value) || 1.0;
+    updateWaveletLengthInfo(mixedWavelet, playbackRate);
+
+    // Load the wavelet to the buffer
+    loadWaveletToBuffer(mixedWavelet);
+}
+
+// function for buffer live update
+function updateBufferLive(waveletX) {
+    if (!audioContext || audioContext.state !== "running") {
+        console.error("AudioContext is not initialized or not running.");
+        return;
+    }
+
+    const maxAmplitude = Math.max(...waveletX.map(Math.abs));
+    const scalingFactor = maxAmplitude > 1 ? 1 / maxAmplitude : 1;
+    const normalizedWavelet = waveletX.map(sample => sample * scalingFactor);
+
+    const buffer = audioContext.createBuffer(1, normalizedWavelet.length, audioContext.sampleRate);
+    buffer.copyToChannel(new Float32Array(normalizedWavelet), 0);
+
+    // Stop the current buffer source node and update seamlessly
+    if (bufferSourceNode) {
+        bufferSourceNode.stop();
+        bufferSourceNode.disconnect();
+    }
+
+    bufferSourceNode = audioContext.createBufferSource();
+    bufferSourceNode.buffer = buffer;
+    bufferSourceNode.loop = true;
+    bufferSourceNode.connect(analyser);
+    analyser.connect(masterGain);
+
+    const playbackRate = parseFloat(document.getElementById("playbackRateSlider").value);
+    bufferSourceNode.playbackRate.setValueAtTime(playbackRate, audioContext.currentTime);
+
+    bufferSourceNode.start();
+    console.log("Buffer updated dynamically with new wavelet data.");
+}
+
+
+// Start playback function
+function startPlayback() {
+    if (isPlaying) return;
+    isPlaying = true;
+    document.getElementById("toggleButton").textContent = "Stop";
+
+    initializeAudioContext();
+
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+
+    const { waveletX: currentWavelet } = generateWavelet(
+        baseLength,
+        baseFrequency,
+        freqVariation,
+        baseTau,
+        tauVariation,
+        numWavelets,
+        overlapPercent
+    );
+
+    generateAndUpdateWavelet();
+    bufferSourceNode.start();
+    bufferStarted = true;
+
+    const playbackRate = parseFloat(document.getElementById("playbackRateSlider").value);
+    startSynchronizedRendering(currentWavelet, playbackRate);
+
+    meydaAnalyzer = Meyda.createMeydaAnalyzer({
+        audioContext,
+        source: analyser,
+        bufferSize: 2048,
+        featureExtractors: ["amplitudeSpectrum"],
+        callback: features => {
+            drawFrequencySpectrum(features.amplitudeSpectrum);
+            drawTimeSignal();
+        }
+    });
+    meydaAnalyzer.start();
+}
+
+// Stop playback function
+function stopPlayback() {
+    if (!isPlaying) return;
+    isPlaying = false;
+    document.getElementById("toggleButton").textContent = "Start";
+
+    if (meydaAnalyzer) {
+        meydaAnalyzer.stop();
+        console.log("Meyda analyzer stopped.");
+    }
+
+    if (bufferSourceNode && bufferStarted) {
+        try {
+            bufferSourceNode.stop();
+            console.log("BufferSourceNode stopped.");
+        } catch (error) {
+            console.error("Error stopping BufferSourceNode:", error);
+        }
+        bufferSourceNode.disconnect();
+        console.log("BufferSourceNode disconnected.");
+        bufferSourceNode = null;
+        bufferStarted = false; // Reset the flag after stopping
+    }
+
+    // Stop synchronized rendering
+    stopSynchronizedRendering();
+}
+
+//// function to regnerate wavelet and start
+function regenerateWaveletAndRestart() {
+    if (isPlaying) {
+        if (bufferSourceNode) {
+            bufferSourceNode.stop(); // Stop the current bufferSourceNode
+            bufferSourceNode.disconnect(); // Disconnect it from the audio graph
+            bufferSourceNode = null;
+        }
+        generateAndUpdateWavelet(); // Regenerate the wavelet buffer with new slider values
+
+        // Start the new buffer source
+        bufferSourceNode.start();
+    }
+}
+
+// function to generate wavelet variant w random noise
+function generateWaveletVariant(baseWavelet, variantFactor) {
+    // Apply variations to the original wavelet based on the current `variantFactor`
+    return baseWavelet.map(sample => sample * (1 + (Math.random() - 0.5) * variantFactor));
+}
+
+// envelope window generation funtion sin^2 attack and decay times
+function createEnvelope(j, baseLength, attack, decay) {
+    const attackLength = Math.floor(attack * baseLength);
+    const decayStart = baseLength - Math.floor(decay * baseLength);
+
+    if (j < attackLength) {
+        const normalizedTime = j / attackLength;
+        return Math.sin((Math.PI / 2) * normalizedTime) ** 2;
+    } else if (j >= decayStart) {
+        const normalizedTime = (j - decayStart) / (baseLength - decayStart);
+        return Math.sin((Math.PI / 2) * (1 - normalizedTime)) ** 2;
+    } else {
+        return 1;
+    }
+}
+
+// 2 ch mixer for wavelets
+function mixWavelet(originalWavelet, variantWavelet, mixFactor = 0.5) {
+    const mixedWavelet = originalWavelet.map((sample, index) => {
+        const variantSample = variantWavelet[index] || 0; // Handle cases where variant is shorter
+        return sample * (1 - mixFactor) + variantSample * mixFactor;
+    });
+    return mixedWavelet;
+}
+
+// Wavelet generation function
+function generateWavelet(baseLength, baseFrequency, freqVariation, baseTau, tauVariation, numWavelets, overlapPercent, overlapVariationPercent = 5, attack = 0.2, decay = 0.8) {
+    const overlapFactor = 1 - (overlapPercent / 100);
+    const baseOverlapLength = Math.floor(baseLength * overlapFactor);
+    let totalLength = 0;
+
+    let waveletX = [];
+    let waveletY = [];
+    let waveletZ = [];
+
+    for (let i = 0; i < numWavelets; i++) {
+        const tauX = baseTau + (Math.random() - 0.5) * tauVariation;
+        const frequencyX = baseFrequency + (Math.random() - 0.5) * freqVariation;
+        const phaseX = Math.random() * 2 * Math.PI;  // Random initial phase for X
+
+        const tauY = baseTau + (Math.random() - 0.5) * tauVariation;
+        const frequencyY = baseFrequency + (Math.random() - 0.5) * freqVariation;
+        const phaseY = Math.random() * 2 * Math.PI;  // Random initial phase for Y
+
+        const tauZ = baseTau + (Math.random() - 0.5) * tauVariation;
+        const frequencyZ = baseFrequency + (Math.random() - 0.5) * freqVariation;
+        const phaseZ = Math.random() * 2 * Math.PI;  // Random initial phase for Z
+
+        const overlapVariation = 1 + ((Math.random() - 0.5) * (overlapVariationPercent / 100));
+        const overlapLength = Math.floor(baseOverlapLength * overlapVariation);
+        const startOffset = i * overlapLength;
+
+        for (let j = 0; j < baseLength; j++) {
+            const index = startOffset + j;
+            if (index >= waveletX.length) {
+                waveletX.length = index + 1;
+                waveletY.length = index + 1;
+                waveletZ.length = index + 1;
+            }
+
+            const time = j / baseLength;
+            const envelope = createEnvelope(j, baseLength, attack, decay);
+
+            // Apply the random phase to each wavelet
+            waveletX[index] = (waveletX[index] || 0) + Math.sin(2 * Math.PI * frequencyX * time + phaseX) * Math.exp(-tauX * time) * envelope;
+            waveletY[index] = (waveletY[index] || 0) + Math.sin(2 * Math.PI * frequencyY * time + phaseY) * Math.exp(-tauY * time) * envelope;
+            waveletZ[index] = (waveletZ[index] || 0) + Math.sin(2 * Math.PI * frequencyZ * time + phaseZ) * Math.exp(-tauZ * time) * envelope;
+
+            totalLength = Math.max(totalLength, index + 1);
+        }
+    }
+
+    waveletX.length = totalLength;
+    waveletY.length = totalLength;
+    waveletZ.length = totalLength;
+    if (!waveletX || !waveletY || !waveletZ) {
+    console.error("Wavelet components are undefined or invalid.");
+    return null;
+    }   
+
+    return { waveletX, waveletY, waveletZ };
+}
+
+// Visualization functions ///////////////////////////////////////////////////////////////////////////////
+
+function drawFrequencySpectrum(amplitudeSpectrum) {
+    const freqCanvas = document.getElementById('freqCanvas');
+    if (!freqCanvas) {
+        console.error("Canvas element with id 'freqCanvas' not found.");
+        return;
+    }
+
+    const freqCtx = freqCanvas.getContext('2d');
+    freqCtx.clearRect(0, 0, freqCanvas.width, freqCanvas.height);
+
+    // Hardcoded dB limits
+    const minDB = -80;
+    const maxDB = 40;
+
+    const dbSpectrum = amplitudeSpectrum.map(amplitude => {
+        // Convert linear amplitude to dB
+        const dbValue = 20 * Math.log10(amplitude);
+        // Clip values to minDB if they're below it
+        return isFinite(dbValue) ? Math.max(dbValue, minDB) : minDB;
+    });
+
+    // Scaling factor to map dB values to canvas height
+    const dbRange = maxDB - minDB;
+
+    // Draw the amplitude spectrum
+    const barWidth = freqCanvas.width / dbSpectrum.length;
+    for (let i = 0; i < dbSpectrum.length; i++) {
+        // Normalize dB value to fit within canvas height
+        const normalizedHeight = ((dbSpectrum[i] - minDB) / dbRange) * freqCanvas.height;
+        const barHeight = freqCanvas.height - normalizedHeight; // Invert to align bottom-up
+
+        // Set color and draw the bar
+        freqCtx.fillStyle = 'green';
+        freqCtx.fillRect(i * barWidth, barHeight, barWidth, normalizedHeight);
+    }
+
+    // Draw dB scale labels
+    freqCtx.font = '12px Arial';
+    freqCtx.fillStyle = 'black';
+    freqCtx.fillText(`${maxDB} dB`, 5, 15);
+    freqCtx.fillText(`${minDB} dB`, 5, freqCanvas.height - 5);
+}
+
+function drawTimeSignal() {
+    const timeCanvas = document.getElementById('timeCanvas');
+    const timeCtx = timeCanvas.getContext('2d');
+    timeCtx.clearRect(0, 0, timeCanvas.width, timeCanvas.height);
+
+    const bufferLength = analyser.fftSize;
+    const timeData = new Uint8Array(bufferLength);
+    analyser.getByteTimeDomainData(timeData);
+
+    // Calculate RMS and Peak values
+    let sumOfSquares = 0;
+    let peakValue = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const centeredValue = (timeData[i] - 128) / 128; // Center around 0
+        sumOfSquares += centeredValue * centeredValue;
+
+        // Single-sample "RMS" for peak detection
+        const absoluteValue = Math.abs(centeredValue);
+        if (absoluteValue > peakValue) {
+            peakValue = absoluteValue;
+        }
+    }
+
+    const rms = Math.sqrt(sumOfSquares / bufferLength);
+    const rmsDisplayValue = (rms * 100).toFixed(1); // Scale and format RMS for display
+    const peakDisplayValue = (peakValue * 100).toFixed(1); // Scale and format peak for display
+
+    // Draw time-domain waveform
+    timeCtx.lineWidth = .5;
+    timeCtx.strokeStyle = 'blue';
+    timeCtx.beginPath();
+
+    const sliceWidth = timeCanvas.width / bufferLength;
+    let x = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+        const v = timeData[i] / 128.0;
+        const y = (v * timeCanvas.height) / 2;
+
+        if (i === 0) {
+            timeCtx.moveTo(x, y);
+        } else {
+            timeCtx.lineTo(x, y);
+        }
+
+        x += sliceWidth;
+    }
+
+    timeCtx.stroke();
+
+    // Display RMS and peak values as text
+    timeCtx.font = '16px Arial';
+    timeCtx.fillStyle = 'black';
+    timeCtx.fillText(`RMS: ${rmsDisplayValue}%`, 10, 20);
+    timeCtx.fillText(`Peak: ${peakDisplayValue}%`, 10, 40);
+
+    // Draw RMS and Peak bars
+    const rmsBarHeight = rms * timeCanvas.height;
+    const peakBarHeight = peakValue * timeCanvas.height;
+
+    // Draw RMS bar (in red)
+    timeCtx.fillStyle = 'green';
+    timeCtx.fillRect(timeCanvas.width - 20, timeCanvas.height - rmsBarHeight, 10, rmsBarHeight);
+
+    // Draw Peak bar (in yellow above RMS bar)
+    timeCtx.fillStyle = 'gray';
+    timeCtx.fillRect(timeCanvas.width - 35, timeCanvas.height - peakBarHeight, 10, peakBarHeight);
+}
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Path loop gen v2.3.2</title>
+<style>
+html,body{margin:0;height:100%;background:#0b0b0b;color:#eee;font-family:system-ui}
+#wrap{display:flex;flex-direction:column;height:100%}
+#hud{
+  display:flex;gap:14px;flex-wrap:wrap;align-items:center;
+  padding:10px;background:rgba(0,0,0,.4);
+  border-bottom:1px solid rgba(255,255,255,.1)
+}
+label{display:flex;flex-direction:column;font-size:12px}
+input[type=range]{width:200px}
+button{
+  padding:8px 12px;border-radius:8px;
+  background:#1b1b1b;color:#fff;
+  border:1px solid rgba(255,255,255,.2);
+  cursor:pointer
+}
+select{background:#1b1b1b;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px}
+#vals{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;opacity:.85}
+#view{flex:1;display:flex;flex-direction:column}
+#c{flex:1}
+
+/* Wave scope padding so it doesn't touch edges */
+#wave{
+  height:140px;
+  width:calc(100% - 40px);
+  margin:0 20px;
+  border-top:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.25);
+  border-radius:8px;
+}
+
+#versionInfo{
+  font-size:12px;
+  opacity:0.65;
+  padding:10px 14px 16px 14px;
+  border-top:1px solid rgba(255,255,255,.06);
+  line-height:1.4;
+}
+
+canvas{width:100%;display:block}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <button id="btnStart">Start audio</button>
+    <button id="btnNewPath">New path</button>
+
+    <label>Frequency (Hz)
+      <input id="freq" type="range" min="10" max="1000" step="0.1" value="220">
+    </label>
+
+    <label>Volume
+      <input id="vol" type="range" min="0" max="0.3" step="0.001" value="0.10">
+    </label>
+
+    <label>Sharpness (0=raw, 1=soft)
+      <input id="sharp" type="range" min="0" max="1" step="0.001" value="0.10">
+    </label>
+
+    <label>Impact mode
+      <input id="impactOn" type="checkbox" checked>
+    </label>
+
+    <label>Impact gain
+      <input id="impactGain" type="range" min="0" max="6" step="0.01" value="2.0">
+    </label>
+
+    <label>Impact width (samples)
+      <input id="impactWidth" type="range" min="1" max="6400" step="1" value="80">
+    </label>
+
+    <label>pathRadius
+      <input id="pathRadius" type="range" min="2" max="20" step="0.1" value="7.0">
+    </label>
+
+    <label>pathJitter
+      <input id="pathJitter" type="range" min="0" max="8" step="0.1" value="2.2">
+    </label>
+
+    <label>pathZAmplitude
+      <input id="pathZAmplitude" type="range" min="0" max="12" step="0.1" value="6.0">
+    </label>
+
+    <label>pathControlPoints
+      <input id="pathControlPoints" type="range" min="4" max="16" step="1" value="9">
+    </label>
+
+    <div id="vals"></div>
+  </div>
+
+  <div id="view">
+    <canvas id="c"></canvas>
+    <canvas id="wave"></canvas>
+    <div id="versionInfo"></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+/* -------------------- DOM refs -------------------- */
+const canvas = document.getElementById("c");
+const waveCanvas = document.getElementById("wave");
+const waveCtx = waveCanvas.getContext("2d");
+
+const btnStart = document.getElementById("btnStart");
+const btnNewPath = document.getElementById("btnNewPath");
+const vals = document.getElementById("vals");
+
+const freq = document.getElementById("freq");
+const vol = document.getElementById("vol");
+const sharp = document.getElementById("sharp");
+
+const impactOn = document.getElementById("impactOn");
+const impactGain = document.getElementById("impactGain");
+const impactWidth = document.getElementById("impactWidth");
+
+const pathRadius = document.getElementById("pathRadius");
+const pathJitter = document.getElementById("pathJitter");
+const pathZAmplitude = document.getElementById("pathZAmplitude");
+const pathControlPoints = document.getElementById("pathControlPoints");
+
+const versionInfo = document.getElementById("versionInfo");
+
+/* -------------------- params (UI -> engine) -------------------- */
+// EN: Single source of truth for all controllable parameters.
+// UI event handlers write to this object; engine code reads from it (no direct DOM reads).
+const params = {
+  hz: +freq.value,
+  volume: +vol.value,
+  sharpness: +sharp.value,
+
+  impactEnabled: !!impactOn.checked,
+  impactGain: +impactGain.value,
+  impactWidth: (+impactWidth.value) | 0,
+
+  // EN: Loop buffer length in seconds (1 = previous behavior).
+  loopSeconds: 1,
+
+  // EN: Crossfade window (ms) used to blend buffer tail into head for seamless looping.
+  edgeXfadeMs: 40,
+
+  pathRadius: +pathRadius.value,
+  pathJitter: +pathJitter.value,
+  pathZAmplitude: +pathZAmplitude.value,
+  pathControlPoints: Math.max(4, Math.floor(+pathControlPoints.value))
+};
+
+function syncParamsFromUI() {
+  // EN: Convenience helper (useful if you later load presets).
+  params.hz = +freq.value;
+  params.volume = +vol.value;
+  params.sharpness = +sharp.value;
+
+  params.impactEnabled = !!impactOn.checked;
+  params.impactGain = +impactGain.value;
+  params.impactWidth = (+impactWidth.value) | 0;
+
+  params.pathRadius = +pathRadius.value;
+  params.pathJitter = +pathJitter.value;
+  params.pathZAmplitude = +pathZAmplitude.value;
+  params.pathControlPoints = Math.max(4, Math.floor(+pathControlPoints.value));
+}
+
+/* EN: Copy <title> as visible heading */
+const GEN_DESCRIPTION =
+  "3D closed Catmull-Rom path projected onto fixed horizontal plane (n=+Y). " +
+  "Loop buffer generated from height signal + optional impact transients. " +
+  "v2.2 adds params state layer (UI → engine). " +
+  "v2.3 aligns buffer updates to loop boundaries (no mid-loop rebuild). " +
+  "v2.3.2 uses wrap crossfade (head/tail blend) for seamless loop edges.";
+
+versionInfo.innerHTML = `
+  <strong>${document.title}</strong><br>
+  ${GEN_DESCRIPTION}
+`;
+
+/* -------------------- Three.js scene -------------------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0b0b0b, 20, 120);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+// EN: Camera stays fixed. The curve rotates in world space.
+camera.position.set(0, 10, 34);
+camera.lookAt(0, 0, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.40));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.90);
+dirLight.position.set(10, 18, 10);
+scene.add(dirLight);
+
+const grid = new THREE.GridHelper(120, 40, 0x222222, 0x141414);
+grid.position.y = -8;
+scene.add(grid);
+
+// EN: Horizontal projection plane (XZ) at y=0
+const projPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(28, 28),
+  new THREE.MeshBasicMaterial({
+    color: 0x66ffaa,
+    transparent: true,
+    opacity: 0.06,
+    side: THREE.DoubleSide
+  })
+);
+projPlane.rotation.x = -Math.PI / 2;
+projPlane.position.y = 0;
+scene.add(projPlane);
+
+// EN: Projection plane normal (+Y)
+scene.add(new THREE.ArrowHelper(
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, 0),
+  10,
+  0xff66aa
+));
+
+/* -------------------- Fish-style random closed curve -------------------- */
+let curve = null;
+let curveObj = null;
+const curveSamples = 900;
+
+function buildRandomClosedCurve() {
+  // EN: Jittered loop points around a ring, plus Z thickness.
+  const pts = [];
+  const M = params.pathControlPoints;
+  const R = params.pathRadius;
+  const J = params.pathJitter;
+  const Z = params.pathZAmplitude;
+
+  for (let k = 0; k < M; k++) {
+    const a = (k / M) * Math.PI * 2;
+    const r = R + (Math.random() * 2 - 1) * J;
+    const z = (Math.random() * 2 - 1) * Z;
+    pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, z));
+  }
+
+  return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+}
+
+function rebuildCurve() {
+  if (curveObj) scene.remove(curveObj);
+
+  curve = buildRandomClosedCurve();
+
+  const geom = new THREE.BufferGeometry();
+  const pos = new Float32Array(curveSamples * 3);
+
+  for (let i = 0; i < curveSamples; i++) {
+    const u = i / curveSamples;
+    const p = curve.getPointAt(u);
+    pos[i * 3 + 0] = p.x;
+    pos[i * 3 + 1] = p.y;
+    pos[i * 3 + 2] = p.z;
+  }
+  geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
+  curveObj = new THREE.LineLoop(
+    geom,
+    new THREE.LineBasicMaterial({ color: 0x88ccff })
+  );
+
+  // EN: Apply current rotation so visuals and audio stay consistent.
+  curveObj.rotation.set(rotPitch, rotYaw, 0);
+
+  scene.add(curveObj);
+}
+
+/* -------------------- Curve rotation via pointer drag -------------------- */
+let dragging = false;
+let lastX = 0, lastY = 0;
+
+// EN: Curve rotation (world space). Projection plane stays fixed.
+let rotYaw = 0;   // around world Y
+let rotPitch = 0; // around world X
+
+function applyCurveRotation() {
+  if (!curveObj) return;
+  rotPitch = Math.max(-1.2, Math.min(1.2, rotPitch));
+  curveObj.rotation.set(rotPitch, rotYaw, 0);
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+
+  rotYaw   -= dx * 0.005;
+  rotPitch -= dy * 0.005;
+  applyCurveRotation();
+
+  // EN: allow a few updates per second while dragging
+  requestRebuild();
+});
+
+canvas.addEventListener("pointerup", (e) => {
+  dragging = false;
+  try { canvas.releasePointerCapture(e.pointerId); } catch {}
+  requestRebuild();
+});
+
+canvas.addEventListener("pointercancel", () => { dragging = false; });
+
+/* -------------------- Waveform scope -------------------- */
+function drawWave(buffer) {
+  const w = waveCanvas.clientWidth | 0;
+  const h = 140;
+
+  waveCanvas.height = h;
+  if (waveCanvas.width !== w) waveCanvas.width = w;
+
+  waveCtx.clearRect(0, 0, w, h);
+
+  const data = buffer.getChannelData(0);
+  const N = data.length;
+
+  // EN: Remove DC only for display so plot is centered.
+  const scanStep = Math.max(1, Math.floor(N / 4000));
+
+  let sum = 0;
+  let cnt = 0;
+  for (let i = 0; i < N; i += scanStep) {
+    sum += data[i];
+    cnt++;
+  }
+  const mean = sum / Math.max(1, cnt);
+
+  // EN: Find max abs after DC removal.
+  let maxAbs = 1e-9;
+  for (let i = 0; i < N; i += scanStep) {
+    const a = Math.abs(data[i] - mean);
+    if (a > maxAbs) maxAbs = a;
+  }
+
+  const headroom = 1.15;
+  const scaleY = (h * 0.42) / (maxAbs * headroom);
+
+  // 0-level line
+  waveCtx.beginPath();
+  waveCtx.moveTo(0, h * 0.5);
+  waveCtx.lineTo(w, h * 0.5);
+  waveCtx.strokeStyle = "rgba(255,255,255,.22)";
+  waveCtx.lineWidth = 1;
+  waveCtx.stroke();
+
+  // mean line (shows actual DC offset)
+  const meanY = (h * 0.5) - (mean * scaleY);
+  waveCtx.beginPath();
+  waveCtx.moveTo(0, meanY);
+  waveCtx.lineTo(w, meanY);
+  waveCtx.strokeStyle = "rgba(255,180,180,.20)";
+  waveCtx.lineWidth = 1;
+  waveCtx.stroke();
+
+  // waveform (include endpoints)
+  waveCtx.beginPath();
+  const Wm1 = Math.max(1, w - 1);
+  for (let x = 0; x < w; x++) {
+    const i = Math.round((x / Wm1) * (N - 1));
+    const v = (data[i] - mean);
+    const y = (h * 0.5) - v * scaleY;
+    if (x === 0) waveCtx.moveTo(x, y);
+    else waveCtx.lineTo(x, y);
+  }
+  waveCtx.strokeStyle = "rgba(120,200,255,.9)";
+  waveCtx.lineWidth = 1;
+  waveCtx.stroke();
+
+  // wrap marker
+  waveCtx.beginPath();
+  waveCtx.moveTo(0, 0);
+  waveCtx.lineTo(0, h);
+  waveCtx.strokeStyle = "rgba(255,255,255,.06)";
+  waveCtx.stroke();
+}
+
+/* -------------------- Audio (dual-source crossfade updates) -------------------- */
+let ctx = null;
+
+// EN: Master output gain (Volume slider controls this)
+let masterGain = null;
+
+// EN: Two channel gains for crossfading between two loop sources
+let chanGains = [null, null];
+
+// EN: Two buffer sources, only one is "active" at a time
+let sources = [null, null];
+let activeIdx = 0;
+
+// EN: Track start times so we can align updates to the loop boundary.
+let sourceStartTime = [0, 0];
+let pendingRebuild = false;
+
+let isOn = false;
+const baseHz = 1;
+
+// EN: Horizontal plane normal (+Y)
+const projNormal = new THREE.Vector3(0, 1, 0);
+
+function initAudio() {
+  if (ctx) return;
+
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  masterGain = ctx.createGain();
+  masterGain.gain.value = params.volume;
+  masterGain.connect(ctx.destination);
+
+  // Two crossfade channels
+  chanGains[0] = ctx.createGain();
+  chanGains[1] = ctx.createGain();
+  chanGains[0].gain.value = 0;
+  chanGains[1].gain.value = 0;
+  chanGains[0].connect(masterGain);
+  chanGains[1].connect(masterGain);
+}
+
+function createLoopSource(buffer, hz, idx) {
+  const s = ctx.createBufferSource();
+  s.buffer = buffer;
+  s.loop = true;
+  s.playbackRate.value = hz / baseHz;
+  s.connect(chanGains[idx]);
+  return s;
+}
+
+function buildBuffer() {
+  const len = Math.max(1, Math.floor(ctx.sampleRate * (params.loopSeconds || 1)));
+  const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+  const ch = buffer.getChannelData(0);
+
+  // Apply the same rotation used for the visible curve.
+  const euler = new THREE.Euler(rotPitch, rotYaw, 0, "XYZ");
+
+  // 1) sample height signal s[i] = y(u)
+  const s = new Float32Array(len);
+  let baseMaxAbs = 1e-9;
+
+  for (let i = 0; i < len; i++) {
+    const u = i / len;
+    const p = curve.getPointAt(u);
+    p.applyEuler(euler);
+    const y = p.dot(projNormal); // == p.y
+    s[i] = y;
+    const a = Math.abs(y);
+    if (a > baseMaxAbs) baseMaxAbs = a;
+  }
+
+  // 2) base signal normalized
+  const invBase = 1 / baseMaxAbs;
+  for (let i = 0; i < len; i++) ch[i] = s[i] * invBase;
+
+  // 3) impact pulses on plane crossings (adds transients on top of base)
+  if (params.impactEnabled) {
+    const k = params.impactGain;
+    // EN: Clamp width to avoid runaway CPU when set very large.
+    const W = Math.min(8000, Math.max(1, params.impactWidth));
+
+    for (let i = 0; i < len; i++) {
+      const iPrev = (i - 1 + len) % len;
+      const y0 = s[iPrev];
+      const y1 = s[i];
+
+      if ((y0 <= 0 && y1 > 0) || (y0 >= 0 && y1 < 0)) {
+        const speed = Math.abs(y1 - y0) * len;
+
+        // EN: Add in normalized domain so baseline stays visible/audible.
+        const amp = k * speed * 0.04;
+        // EN: Sigma controls softness; computed once per impact event (not per sample).
+        const sigma = Math.max(2, W * 0.33);
+        const invSigma = 1 / sigma;
+
+        for (let j = -W; j <= W; j++) {
+          const idx = (i + j + len) % len;
+          // EN: Smooth bipolar "impact" using derivative-of-Gaussian-like shape.
+          // Produces a soft, click-resistant transient with near-zero DC.
+          // EN: sigma controls softness. Keep it proportional but bounded.
+          const sigma = Math.min(220, Math.max(2, W * 0.33));
+          const x = j * invSigma;
+          const w = x * Math.exp(-0.5 * x * x);
+
+          // EN: No extra 1/sigma normalization -> peak stays ~constant as width grows.
+          ch[idx] += amp * w;
+
+          // Normalize-ish so W changes don't explode amplitude (optional scaling)
+          const norm = 1 / Math.max(0.6, sigma);
+
+          ch[idx] += amp * w * norm;
+        }
+      }
+    }
+  }
+
+  // 4) sharpness shaping
+  const sharpAmt = params.sharpness;
+  for (let i = 0; i < len; i++) {
+    const x = ch[i];
+    const soft = Math.tanh(x * 1.8);
+    ch[i] = (1 - sharpAmt) * x + sharpAmt * soft;
+  }
+
+  // 5) wrap crossfade (seamless loop edges)
+  // EN: Instead of fading to zero, blend the buffer tail into the head so the wrap discontinuity is minimized.
+  // This preserves overall energy and avoids the "fade-out wedge" artifact.
+  const xfadeSamp = Math.min(
+    Math.floor(len * 0.25),
+    Math.max(0, Math.floor((params.edgeXfadeMs || 0) * ctx.sampleRate / 1000))
+  );
+
+  if (xfadeSamp > 1) {
+    for (let i = 0; i < xfadeSamp; i++) {
+      const t = i / (xfadeSamp - 1);
+
+      // EN: Equal-power crossfade weights
+      const wIn = Math.sin(0.5 * Math.PI * t);
+      const wOut = Math.cos(0.5 * Math.PI * t);
+
+      const head = ch[i];
+      const tail = ch[len - xfadeSamp + i];
+
+      const mixed = (tail * wOut) + (head * wIn);
+
+      // EN: Write the same mixed region to both ends so ch[0..W) and ch[len-W..len) match.
+      ch[i] = mixed;
+      ch[len - xfadeSamp + i] = mixed;
+    }
+  }
+
+
+
+  drawWave(buffer);
+  return buffer;
+}
+
+function start() {
+  initAudio();
+  if (ctx.state === "suspended") ctx.resume();
+
+  // Build initial buffer
+  const buffer = buildBuffer();
+  const hz = params.hz;
+
+  // Ensure both channels silent before starting
+  chanGains[0].gain.setValueAtTime(0, ctx.currentTime);
+  chanGains[1].gain.setValueAtTime(0, ctx.currentTime);
+
+  // Start on channel 0
+  activeIdx = 0;
+
+  for (let i = 0; i < 2; i++) {
+    if (sources[i]) { try { sources[i].stop(); } catch {} try { sources[i].disconnect(); } catch {} }
+    sources[i] = null;
+  }
+
+  sources[0] = createLoopSource(buffer, hz, 0);
+  sources[0].start();
+  // EN: Track loop phase for boundary-aligned updates.
+  sourceStartTime[0] = ctx.currentTime;
+
+  // Fade in quickly to avoid click
+  chanGains[0].gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
+
+  isOn = true;
+  btnStart.textContent = "Stop audio";
+}
+
+function stop() {
+  if (!ctx || !isOn) return;
+
+  const t = ctx.currentTime;
+  masterGain.gain.setTargetAtTime(0, t, 0.03);
+
+  setTimeout(() => {
+    for (let i = 0; i < 2; i++) {
+      if (sources[i]) {
+        try { sources[i].stop(); } catch {}
+        try { sources[i].disconnect(); } catch {}
+        sources[i] = null;
+      }
+      if (chanGains[i]) {
+        try { chanGains[i].gain.setValueAtTime(0, ctx.currentTime); } catch {}
+      }
+    }
+
+    // Restore master volume for next start
+    masterGain.gain.setValueAtTime(params.volume, ctx.currentTime);
+
+    isOn = false;
+    btnStart.textContent = "Start audio";
+  }, 120);
+}
+
+function rebuildLoopBufferIfOn() {
+  if (!isOn || !ctx) return;
+
+  const buffer = buildBuffer();
+  const hz = params.hz;
+
+  const from = activeIdx;
+  const to = 1 - activeIdx;
+
+  // Kill any old source on the target channel before reuse
+  if (sources[to]) {
+    try { sources[to].stop(); } catch {}
+    try { sources[to].disconnect(); } catch {}
+    sources[to] = null;
+  }
+
+  // Prepare target channel at 0 gain
+  chanGains[to].gain.setValueAtTime(0, ctx.currentTime);
+
+  // Start new loop on target channel
+  sources[to] = createLoopSource(buffer, hz, to);
+  sources[to].start();
+  // EN: Track loop phase for boundary-aligned updates.
+  sourceStartTime[to] = ctx.currentTime;
+
+  // Crossfade (short window hides phase mismatch)
+  const fade = 0.06; // 60 ms
+  const now = ctx.currentTime;
+
+  chanGains[from].gain.cancelScheduledValues(now);
+  chanGains[to].gain.cancelScheduledValues(now);
+
+  chanGains[to].gain.setValueAtTime(chanGains[to].gain.value, now);
+  chanGains[from].gain.setValueAtTime(chanGains[from].gain.value, now);
+
+  chanGains[to].gain.linearRampToValueAtTime(1.0, now + fade);
+  chanGains[from].gain.linearRampToValueAtTime(0.0, now + fade);
+
+  // After fade, stop old source hard to prevent stacking
+  const old = sources[from];
+  setTimeout(() => {
+    if (old) {
+      try { old.stop(); } catch {}
+      try { old.disconnect(); } catch {}
+    }
+    if (sources[from] === old) sources[from] = null;
+  }, Math.ceil((fade + 0.02) * 1000));
+
+  activeIdx = to;
+}
+
+/* -------------------- Rebuild scheduling (boundary-aligned) -------------------- */
+// EN: v2.3 change — we no longer rebuild mid-loop.
+// UI can request changes at any time, but audio buffer swaps only happen at the next loop boundary.
+function requestRebuild() {
+  if (!isOn || !ctx) return;
+  pendingRebuild = true;
+}
+
+function maybeApplyPendingRebuildAtBoundary() {
+  if (!pendingRebuild || !isOn || !ctx) return;
+
+  const now = ctx.currentTime;
+  const active = activeIdx;
+
+  // EN: Base buffer duration (seconds) at playbackRate = 1.
+  const bufferDur = Math.max(0.01, (params.loopSeconds || 1));
+
+  // EN: Effective loop duration considering playbackRate.
+  const playRate = Math.max(1e-6, params.hz / baseHz);
+  const loopDur = bufferDur / playRate;
+
+  const t0 = sourceStartTime[active] || now;
+  const phase = (now - t0) % loopDur;
+  const timeToBoundary = loopDur - phase;
+
+  // EN: Trigger only very near the boundary to avoid jitter.
+  if (timeToBoundary < 0.01) { // 10 ms window
+    pendingRebuild = false;
+    rebuildLoopBufferIfOn();
+  }
+}
+
+/* -------------------- UI wiring -------------------- */
+btnStart.onclick = () => (isOn ? stop() : start());
+
+btnNewPath.onclick = () => {
+  rebuildCurve();
+  requestRebuild();
+};
+
+vol.oninput = () => {
+  params.volume = +vol.value;
+  if (!masterGain || !ctx) return;
+  masterGain.gain.setTargetAtTime(params.volume, ctx.currentTime, 0.03);
+};
+
+freq.oninput = () => {
+  params.hz = +freq.value;
+
+  if (!ctx || !isOn) return;
+
+  // EN: Update playbackRate on both channels to stay consistent across crossfades.
+  const now = ctx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const s = sources[i];
+    if (s) {
+      s.playbackRate.cancelScheduledValues(now);
+      s.playbackRate.setTargetAtTime(params.hz / baseHz, now, 0.02);
+    }
+  }
+};
+
+sharp.oninput = () => {
+  params.sharpness = +sharp.value;
+  requestRebuild();
+};
+impactOn.oninput = () => {
+  params.impactEnabled = !!impactOn.checked;
+  requestRebuild();
+};
+impactGain.oninput = () => {
+  params.impactGain = +impactGain.value;
+  requestRebuild();
+};
+impactWidth.oninput = () => {
+  params.impactWidth = (+impactWidth.value) | 0;
+  requestRebuild();
+};
+
+// Debounced curve rebuild for path params
+let pathTimer = null;
+function schedulePathRebuild() {
+  // EN: Update params first, then rebuild curve + audio buffer (debounced).
+  params.pathRadius = +pathRadius.value;
+  params.pathJitter = +pathJitter.value;
+  params.pathZAmplitude = +pathZAmplitude.value;
+  params.pathControlPoints = Math.max(4, Math.floor(+pathControlPoints.value));
+
+  if (pathTimer) clearTimeout(pathTimer);
+  pathTimer = setTimeout(() => {
+    rebuildCurve();
+    requestRebuild();
+  }, 140);
+}
+[pathRadius, pathJitter, pathZAmplitude, pathControlPoints].forEach((sl) => {
+  sl.oninput = schedulePathRebuild;
+});
+
+/* -------------------- Render loop -------------------- */
+function resize() {
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+function updateHUD() {
+  vals.textContent =
+    `rotYaw=${rotYaw.toFixed(2)} rotPitch=${rotPitch.toFixed(2)}  projPlane=horizontal (+Y)  updates=loop-boundary`;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  resize();
+  updateHUD();
+  maybeApplyPendingRebuildAtBoundary();
+  renderer.render(scene, camera);
+}
+
+/* -------------------- Init -------------------- */
+rebuildCurve();
+applyCurveRotation();
+animate();
+</script>
+</body>
+</html>
