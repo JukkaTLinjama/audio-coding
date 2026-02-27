@@ -169,7 +169,7 @@
         margin-bottom:8px;
         opacity:0.9;
       ">
-        Fish School v4.3 ------
+        Fish School v4.3b ------
       </div>
 
     <div class="row">
@@ -201,7 +201,7 @@
 
   </div>
       <div id="hudToggle">
-        2026 Jukka Linjama & ChatGPT 5.2 · CC BY 4.0      ....    (open/hide controls)
+        2026 Jukka Linjama & ChatGPT 5.2 · CC BY 4.0  . . . . . . . . .   (open/hide controls)
       </div>
 
   <script type="module">
@@ -352,6 +352,8 @@ for (let i = 0; i < N; i++) {
 
       density: 1.10,
       soloIndependence: 0.70,
+      // EN: Max extra flow boost for solo fish. Applied more when flock[i] is low (more independent).
+      soloFlowBoostMax: 1.2,
 
       // Base boids
       neighborRadius: 6.5,
@@ -522,7 +524,7 @@ for (let i = 0; i < N; i++) {
     function soloFlockTarget(ind) {
       // 0 => behaves more like the school, 1 => mostly independent
       // Never go fully 0 to avoid "different species" vibe.
-      return 0.9 - 0.7 * ind; // 0.2..0.9
+      return 0.9 - 0.8 * ind; // 0.1..0.9
     }
 
   function applyDensity() {
@@ -840,7 +842,10 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // EN: Normalize lateral direction but scale its influence by distance (strong when far off)
         if (latDist > 1e-6) tmp.r1.multiplyScalar(1 / latDist);
         // EN: Effective attraction gain toward the path (density-scaled)
-        const attractK = params.pathAttractK * (params._pathAttractScale ?? 1.0);
+        // EN: Satellites should be less tightly bound to the target corridor.
+        // flock[i]≈1 => almost normal, flock[i]≈0 => much weaker target attraction.
+        const attractKBase = params.pathAttractK * (params._pathAttractScale ?? 1.0);
+        const attractK = isSolo[i] ? attractKBase * (0.15 + 0.85 * flock[i]) : attractKBase;
 
         // EN: When far from the leader line, prioritize lateral correction and reduce forward bias.
         // kLatGain tunes how aggressively the school returns to the path corridor.
@@ -853,25 +858,31 @@ if (tmp.sep.lengthSq() > 1e-8) {
         const gate = 1 / (1 + 0.9 * latDist); // latDist=0 => 1, latDist large => smaller
         tmp.desired.addScaledVector(leaderTan, params.pathSpeed * gate);
 
-        // Keep solo fish moving with the flow so they don't lag behind
+        // EN: Stronger flow boost when the fish is more independent (low flock[i]).
+        // This keeps "satellites" moving with the stream without merging into the main school.
         if (isSolo[i]) {
-          tmp.desired.addScaledVector(leaderTan, 0.8); // tune 0.4..1.2
+          const soloFlow = params.soloFlowBoostMax * (1 - flock[i]); // flock≈1 => ~0, flock≈0 => max boost
+          tmp.desired.addScaledVector(leaderTan, soloFlow);
         }
 
         // Keep school fairly thin in Z (soft pull toward z=0)
         tmp.desired.z += (-p.z) * params.zWanderK;
 
         // Add smoothed noise
-        tmp.desired.addScaledVector(noise[i], params.noiseStrength);
-        // Mild "glue" towards global center so the school doesn't split into two flocks
+        // EN: More independence => more wander (noise). Helps form a satellite group.
+        const noiseK = isSolo[i]
+          ? params.noiseStrength * (1 + 1.6 * (1 - flock[i]))  // up to ~2.6x when flock≈0
+          : params.noiseStrength;
+        tmp.desired.addScaledVector(noise[i], noiseK);
+        // Mild "glue" towards global center so the school doesn't split into multiple clusters
         if (globalCount > 0) {
           const toGlobal = globalCenter.clone().sub(p);
           if (toGlobal.lengthSq() > 1e-8) {
             toGlobal.normalize();
-            // EN: Density-aware "glue" keeps high-density schools unified,
-            // but allows low-density settings to disperse more.
+            // EN: Density-aware "glue" keeps high-density schools unified.
+            // EN: Glue only the main school; satellites (solo) should not be pulled to the global center.
             const glue = lerp(0.00, 0.42, clamp(params.density / 2, 0, 1));
-            tmp.desired.addScaledVector(toGlobal, glue * flock[i]);
+            if (!isSolo[i]) tmp.desired.addScaledVector(toGlobal, glue);
           }
         }
         // EN: Reaction lag: smooth desired velocity so fish don't turn in perfect sync.
