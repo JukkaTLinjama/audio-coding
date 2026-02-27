@@ -4,10 +4,10 @@
         {
             "id": "fish school v4",
             "title": "simulation of fish school v4.x",
-            "path": "./parvisimul/kalat-v4.html",
+            "path": "./parvisimul/kalat-v4.2.html",
             "thumb": "/assets/Fish-v4.png",
             "status": "WIP",
-            "description": "fish simul v4.1. nice loose swarm",
+            "description": "fish simul v4.3. nice loose swarm",
             "tags": [
                 "3D",
                 "simulation",
@@ -38,7 +38,18 @@
                 "lf",
                 "web-audio"
             ]
-
+        },
+        {
+            "id": "loop gen v2.5",
+            "title": "Loop gen v2.5",
+            "path": "Vibroacoustic/test generators/path-generator-v2.5.2-granular-gpl-overlap.html",
+            "thumb": "/assets/Path-loop-gen-2.1.png",
+            "status": "WIP",
+            "description": "Sound is treated as a 1D observation of a higher-dimensional geometric system.",
+            "tags": [
+                "visualisation",
+                "web-audio"
+            ]
         },
         {
             "id": "timescales visualisation 2025",
@@ -51,18 +62,6 @@
                 "visualisation",
                 "history event themes",
                 "json database"
-            ]
-        },
-        {
-            "id": "loop gen v2.1",
-            "title": "Loop gen v2.1",
-            "path": "Vibroacoustic/test generators/path-generator-v2.1.html",
-            "thumb": "/assets/Path-loop-gen-2.1.png",
-            "status": "WIP",
-            "description": "Sound is treated as a 1D observation of a higher-dimensional geometric system.",
-            "tags": [
-                "visualisation",
-                "web-audio"
             ]
         }
     ]
