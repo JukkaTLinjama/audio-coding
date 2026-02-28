@@ -4,10 +4,10 @@
         {
             "id": "fish school v5",
             "title": "simulation of fish school v5.x",
-            "path": "./parvisimul/kalat-v5.html",
+            "path": "./parvisimul/kalat-v5.4.html",
             "thumb": "/assets/Fish-v5.png",
             "status": "WIP",
-            "description": "fish simul v5.0. nice loose swarm, solo fish up to 70% independent, density 1.1, noise, and a bit of flow boost to keep solo fish moving with the stream.",
+            "description": "fish simul v5.4. nice loose swarm, solo fish up to 70% independent, density 1.1, noise, and a bit of flow boost to keep solo fish moving with the stream.",
             "tags": [
                 "3D",
                 "simulation",
