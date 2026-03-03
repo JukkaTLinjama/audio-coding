@@ -416,21 +416,6 @@ for (let i = 0; i < N; i++) {
   fish.add(body);
   fish.add(tail);
 
-
-// EN: Debug helpers for fish #0 (local axes + forward direction)
-if (i === 0) {
-  fish.add(new THREE.AxesHelper(1.0)); // local X=red, Y=green, Z=blue
-
-  debugArrow = new THREE.ArrowHelper(
-    new THREE.Vector3(0, 1, 0), // placeholder direction, updated per-frame
-    new THREE.Vector3(0, 0, 0), // placeholder origin, updated per-frame
-    1.2,
-    0xffff00
-  );
-  scene.add(debugArrow);
-}
-
-
 const eyeBar = new THREE.Mesh(eyeBarGeom, eyeBarMat.clone());
   // EN: Eye bar reads as two eyes with one mesh: wide in X, compact in Y, moderate in Z.
   eyeBar.scale.set(.65, 0.45, 0.45);
@@ -1412,6 +1397,8 @@ if (tmp.sep.lengthSq() > 1e-8) {
       for (let i = 0; i < N; i++) {
         const p = P[i];
         const dir = V[i].clone().normalize();
+
+
         if (dir.lengthSq() < 1e-8) dir.set(0, 1, 0);
 
         // EN: Build a stable frame so all fish share the same "up" (world Y).        // local axes: X=right, Y=forward, Z=up
@@ -1422,7 +1409,19 @@ if (tmp.sep.lengthSq() > 1e-8) {
         } else {
             tmp.right.normalize();
         }
+        // EN: "Flight up" (perpendicular to dir)
         tmp.basisUp.copy(tmp.right).cross(dir).normalize();
+
+        // EN: Blend up toward worldUp when motion is mostly horizontal,
+        // EN: so fish stays visually upright and doesn't look sideways.
+        const absY_up = Math.abs(dir.y);
+        let u = (absY_up - 0.08) / (0.28 - 0.08); // start..full tilt range
+        u = clamp(u, 0, 1);
+        const allowTilt = u * u * (3 - 2 * u); // smoothstep
+
+        // Horizontal (allowTilt≈0) => up ≈ worldUp
+        // Vertical-ish (allowTilt≈1) => up ≈ flight up
+        tmp.basisUp.lerp(tmp.worldUp, 1 - allowTilt).normalize();
 
         // EN: Rotation matrix from basis -> quaternion (prevents random roll flips)
         tmp.m4.makeBasis(tmp.right, dir, tmp.basisUp);
@@ -1431,6 +1430,20 @@ if (tmp.sep.lengthSq() > 1e-8) {
         const fish = fishMeshes[i];
         fish.position.copy(p);
         fish.quaternion.copy(tmp.quat);
+        // EN: Determine which local axis is the model's "up" by checking alignment vs worldUp.
+        if (i === 0 && (performance.now() % 400 < 16)) {
+          const upX = new THREE.Vector3(1, 0, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
+          const upY = new THREE.Vector3(0, 1, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
+          const upZ = new THREE.Vector3(0, 0, 1).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
+          console.log("dotUp X/Y/Z:", upX.toFixed(3), upY.toFixed(3), upZ.toFixed(3));
+        }
+        // EN: Measure actual "uprightness" of fish #0 (angle between its up axis and world up)
+        if (i === 0 && (performance.now() % 400 < 16)) {
+          const upWorld = new THREE.Vector3(0, 0, 1).applyQuaternion(fish.quaternion); // assumes local +Z is up
+          const dotUp = clamp(upWorld.dot(tmp.worldUp), -1, 1);
+          const upAngleDeg = Math.acos(dotUp) * 57.3;
+          console.log("upAngleDeg:", upAngleDeg.toFixed(1), "dirLen:", V[i].length().toFixed(3));
+        }
 
         // EN: Update debug arrow to match fish #0 velocity direction
         if (i === 0 && debugArrow) {
@@ -1457,21 +1470,21 @@ if (tmp.sep.lengthSq() > 1e-8) {
         tail.material.emissiveIntensity = 0.35 + 4.0 * thrust;
 
 
-// --- Eye + mouth scaling (simple expressive motion) ---
-const eyeBar = fishEyeBars[i];
-const mouth = fishMouths[i];
+        // --- Eye + mouth scaling (simple expressive motion) ---
+        const eyeBar = fishEyeBars[i];
+        const mouth = fishMouths[i];
 
-// EN: Use forward accel "thrust" for alertness (eyes slightly larger)
-const eyeK = 1.0 + 0.35 * thrust; // ~1.0..1.35
-// EN: Keep eye shape/orientation from init; only scale uniformly.
-if (eyeBar.userData && eyeBar.userData.baseScale) {
-  eyeBar.scale.copy(eyeBar.userData.baseScale).multiplyScalar(eyeK);
-} else {
-  eyeBar.scale.set(1, 1, 1).multiplyScalar(eyeK);
-}
+        // EN: Use forward accel "thrust" for alertness (eyes slightly larger)
+        const eyeK = 1.0 + 0.35 * thrust; // ~1.0..1.35
+        // EN: Keep eye shape/orientation from init; only scale uniformly.
+        if (eyeBar.userData && eyeBar.userData.baseScale) {
+          eyeBar.scale.copy(eyeBar.userData.baseScale).multiplyScalar(eyeK);
+        } else {
+          eyeBar.scale.set(1, 1, 1).multiplyScalar(eyeK);
+        }
 
-// EN: Use forward accel for a subtle mouth-open effect
-const mouthK = 1.0 + 0.8 * thrust; // ~1.0..1.8
+        // EN: Use forward accel for a subtle mouth-open effect
+        const mouthK = 1.0 + 0.8 * thrust; // ~1.0..1.8
        mouth.scale
           .copy(mouth.userData.baseScale)
           .multiplyScalar(mouthK);
@@ -1487,7 +1500,16 @@ const mouthK = 1.0 + 0.8 * thrust; // ~1.0..1.8
 
         // Apply bank around forward axis (local +Y after alignment)
         // EN: Bank around forward axis for consistent roll.
-        tmp.bankQ.setFromAxisAngle(dir, bank);
+        // EN: Prefer upright orientation during mostly-horizontal motion.
+        // EN: Allow strong roll mainly when moving up/down (large |dir.y|).
+        const absY = Math.abs(dir.y);
+        let g = (absY - 0.08) / (0.28 - 0.08); // start..full
+        g = clamp(g, 0, 1);
+        const allowRoll = g * g * (3 - 2 * g); // smoothstep
+
+        const bankGated = bank * allowRoll;
+        
+        tmp.bankQ.setFromAxisAngle(dir, bankGated);
         fish.quaternion.premultiply(tmp.bankQ);
       }
     }
