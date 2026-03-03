@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v5.9</title>
+  <title>Fish School (Boids) – v5.91</title>
   <style>
     html,
     body {
@@ -185,7 +185,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v5.9 (2 schools; B path near camera; B fish optional)</div>
+  <div id="versionBar">Fish School v5.91 (2 schools; B path near camera; B fish optional)</div>
     <div id="hud">
       <div style="
         font-weight:600;
@@ -391,7 +391,8 @@ const mouthMat = new THREE.MeshStandardMaterial({
 const N = 30;
 const N_B = 0; // EN: Secondary school fish count (0 = path/leader only)
     const COLOR_SCHOOL = new THREE.Color("#cfe9ff");
-    const COLOR_SOLO = new THREE.Color("#ff7a2f");
+  // EN: Dark green for solo fish
+  const COLOR_SOLO = new THREE.Color("#2c7a3f");
 
     // For N=30, separate objects are simplest and reliable on mobile.
 // Each fish is a Group: [0]=body, [1]=tail.
@@ -532,7 +533,7 @@ fish.add(modelFix);
 
       // ---------- Secondary school/path (B) ----------
       // EN: School B can run with N=0 (no fish) while its path/leader still animates.
-      pathRadiusB: 1.0,
+      pathRadiusB: 0.3,
       pathJitterB: 0.8,
       pathZAmplitudeB: 1.0,
       pathCenterXB: 0.0,
@@ -1492,9 +1493,28 @@ if (tmp.right.lengthSq() < 1e-8) {
           eyeBar.scale.set(1, 1, 1).multiplyScalar(eyeK);
         }
 
-        // EN: Use forward accel for a subtle mouth-open effect
-        const mouthK = 1.0 + 0.8 * thrust; // ~1.0..1.8
-       mouth.scale
+        // EN: Mouth size inversely proportional to speed.
+        // EN: Fast fish -> small mouth, slow fish -> large mouth.
+
+        const speed = V[i].length();
+
+        // EN: Map speed range to 0..1 (0 = slow, 1 = fast)
+        const t = clamp(
+          (speed - params.minSpeed) / (params.maxSpeed - params.minSpeed),
+          0,
+          1
+        );
+
+        // EN: Invert so 1 = slow, 0 = fast
+        const slowFactor = 1 - t;
+
+        // EN: Ease curve (more dramatic when very slow)
+        const slowEase = slowFactor * slowFactor;
+
+        // EN: Scale range: tune 1.8 if you want larger maximum
+        const mouthK = 0.55 + 2.2 * slowEase;
+
+        mouth.scale
           .copy(mouth.userData.baseScale)
           .multiplyScalar(mouthK);
 
