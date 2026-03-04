@@ -2,12 +2,12 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "fish school v5",
-            "title": "simulation of fish school v5.x",
-            "path": "./parvisimul/kalat-v5.9.html",
-            "thumb": "/assets/Fish-v5.png",
+            "id": "fish school v6",
+            "title": "simulation of fish school v6.x",
+            "path": "./parvisimul/kalat-v6.html",
+            "thumb": "/assets/Fish-v6.png",
             "status": "WIP",
-            "description": "fish simul v5.9. swarm B added tp front solo fish.",
+            "description": "fish simul v6.0. Calm target lock with smooth turns.",
             "tags": [
                 "3D",
                 "simulation",

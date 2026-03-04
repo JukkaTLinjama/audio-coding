@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v5.91</title>
+  <title>Fish School (Boids) – v6</title>
   <style>
     html,
     body {
@@ -185,7 +185,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v5.91 (2 schools; B path near camera; B fish optional)</div>
+  <div id="versionBar">Fish School v6 – Calm Target Lock (Smooth Turns)</div>
     <div id="hud">
       <div style="
         font-weight:600;
@@ -967,8 +967,10 @@ fish.add(modelFix);
       applyDensity();
     });
     bindSlider("targetSpeed", "targetSpeedVal", (v) => {
+      // EN: Target speed slider drives BOTH leaders so Path B follows the same speed changes.
       params.pathLeaderSpeed = v;
-    });
+      params.pathLeaderSpeedB = v; // <-- add this
+  });
 
     bindSlider("reactionLag", "reactionLagVal", (v) => {
       params.reactionLag = v;
@@ -1084,6 +1086,14 @@ function step(dt) {
       const leaderSample = samplePathAtU(pathLeaderU);
       const leaderPos = leaderSample.pos;
       const leaderTan = leaderSample.tan;
+      // EN: Stop-mode factors when the leader slows down.
+      // EN: targetSpeed slider controls params.pathLeaderSpeed (0..4).
+      // EN: Stop-mode factors per leader (A and B). Used to calm fish when the active leader slows/stops.
+      const lead01A = clamp(params.pathLeaderSpeed / 1.8, 0, 1);
+      const stopEaseA = (1 - lead01A) ** 2;
+
+      const lead01B = clamp(params.pathLeaderSpeedB / 0.52, 0, 1); // 0.52 = your current default B speed
+      const stopEaseB = (1 - lead01B) ** 2;
 
       if (pathLeaderMarker) pathLeaderMarker.position.copy(leaderPos);
 
@@ -1177,14 +1187,20 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // EN: No nearest-point lookup => no snapping when the curve self-intersects.
         const useLeaderPos = (i === 0 && params.testFishUsePathB) ? leaderPosB : leaderPos;
         const useLeaderTan = (i === 0 && params.testFishUsePathB) ? leaderTanB : leaderTan;
+        // EN: Use the stop-ease of the ACTIVE leader for this fish.
+        const stopEaseThis = (i === 0 && params.testFishUsePathB) ? stopEaseB : stopEaseA;
+
+        const flowScaleThis = 1 - 0.95 * stopEaseThis;
+        const minSpeedThis = lerp(params.minSpeed, 0.05, stopEaseThis);
+        const pointPullThis = 0.12 + 0.65 * stopEaseThis;
 
         tmp.toPath.copy(useLeaderPos).sub(p);
         // EN: Small direct pull toward the leader point to reduce persistent corridor offset,
         // EN: especially when the leader slows/stops.
         if (tmp.toPath.lengthSq() > 1e-8) {
           tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
-          tmp.desired.addScaledVector(tmp.r2, 0.12);   // <-- kPoint (try 0.05..0.25)
-        }
+          tmp.desired.addScaledVector(tmp.r2, pointPullThis);
+         }
 
         // EN: Lateral error only (remove forward component)
         const fwd = useLeaderTan; // unit
@@ -1208,7 +1224,7 @@ if (tmp.sep.lengthSq() > 1e-8) {
 
         // EN: Gate forward flow by lateral error so fish don't "lock" into an offset orbit.
         const gate = 1 / (1 + 0.9 * latDist); // latDist=0 => 1, latDist large => smaller
-        tmp.desired.addScaledVector(useLeaderTan, params.pathSpeed * gate);
+        tmp.desired.addScaledVector(useLeaderTan, params.pathSpeed * gate * flowScaleThis);
 
         // EN: Stronger flow boost when the fish is more independent (low flock[i]).
         // This keeps "satellites" moving with the stream without merging into the main school.
@@ -1227,7 +1243,8 @@ if (tmp.sep.lengthSq() > 1e-8) {
         const noiseK = isSolo[i]
           ? params.noiseStrength * (1 + 1.6 * (1 - flock[i]))  // up to ~2.6x when flock≈0
           : params.noiseStrength;
-        tmp.desired.addScaledVector(noise[i], noiseK);
+        // tmp.desired.addScaledVector(noise[i], noiseK);
+        tmp.desired.addScaledVector(noise[i], noiseK * (1 - 0.85 * stopEaseThis)); // reduce noise when leader slows down
         // Mild "glue" towards global center so the school doesn't split into multiple clusters
         if (globalCount > 0) {
           const toGlobal = globalCenter.clone().sub(p);
@@ -1313,8 +1330,12 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // EN: During focus, tmp.desired already encodes a desired velocity (including speed).
         if (!(focusState.active && i === 0)) {
           // EN: Let pathSpeed act as a speed multiplier, not just a direction bias.
-          const sp = clamp(params.pathSpeed / 1.55, 0.3, 2.5); // 1.55 = default baseline
-          const cruise = lerp(params.minSpeed, params.maxSpeed, 0.55) * sp;
+          const sp = clamp(params.pathSpeed / 1.55, 0.3, 2.5);
+
+          // EN: When leader slows, also reduce cruise speed strongly (prevents "orbiting" when target stops).
+          const cruiseStopScale = 1 - 0.85 * stopEaseThis; // 1..~0.15
+          const cruise = lerp(params.minSpeed, params.maxSpeed, 0.55) * sp * cruiseStopScale;
+
           if (tmp.desired.lengthSq() > 1e-8) setMag(tmp.desired, cruise);
         } else {
           // EN: Focus: keep desired speed as computed (arrive/hold/release).
@@ -1348,6 +1369,18 @@ if (tmp.sep.lengthSq() > 1e-8) {
 
 // Steering = desiredVel - currentVel
         tmp.steer.copy(tmp.desired).sub(v);
+        // EN: Turn-rate limit for Path B test fish even in normal mode (prevents "twitch" on tight curves).
+        if (i === 0 && params.testFishUsePathB && v.lengthSq() > 1e-8 && tmp.desired.lengthSq() > 1e-8) {
+          const curDir = tmp.fwd.copy(v).normalize();
+          const tgtDir = tmp.tangent.copy(tmp.desired).normalize();
+
+          const maxTurnRate = 3.0; // rad/s, try 2.0..5.0
+          const maxAng = maxTurnRate * dt;
+
+          // rotateDirToward() exists already (global helper) – use it to limit direction change
+          const newDir = rotateDirToward(curDir, tgtDir, maxTurnRate, dt);
+          tmp.desired.copy(newDir).multiplyScalar(tmp.desired.length());
+        }
         clampLen(tmp.steer, params.maxSteer);
 
         // Integrate
@@ -1356,9 +1389,7 @@ if (tmp.sep.lengthSq() > 1e-8) {
         // Clamp speed
         const speed = v.length();
         if (speed > params.maxSpeed) v.multiplyScalar(params.maxSpeed / speed);
-        else if (speed < params.minSpeed) v.multiplyScalar(params.minSpeed / speed);
-
-        p.addScaledVector(v, dt);
+        else if (speed < minSpeedThis) v.multiplyScalar(minSpeedThis / speed);        p.addScaledVector(v, dt);
 
 
         // --- Acceleration decomposition (for visuals) ---
@@ -1500,7 +1531,7 @@ if (tmp.right.lengthSq() < 1e-8) {
 
         // EN: Map speed range to 0..1 (0 = slow, 1 = fast)
         const t = clamp(
-          (speed - params.minSpeed) / (params.maxSpeed - params.minSpeed),
+          (speed - 0.05) / (params.maxSpeed - 0.05),
           0,
           1
         );
