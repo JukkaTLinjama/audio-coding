@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v6.7</title>
+  <title>Fish School (Boids) – v6.8</title>
   <style>
     html,
     body {
@@ -72,6 +72,15 @@
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.14);
       color: #aeadad;
+    }
+
+    /* EN: Status line for simulation speed and accumulated simulation time */
+    #simStatus {
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+      color: rgba(220,220,220,0.72);
+      letter-spacing: 0.2px;
     }
     #hud {
       transition: opacity 620ms ease, transform 620ms ease;
@@ -217,7 +226,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v6.7 – Calm Target Lock (Smooth Turns)</div>
+  <div id="versionBar">Fish School v6.8 – Calm Target Lock (Smooth Turns)</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -261,7 +270,10 @@
     <div class="row">
       <button id="scatter">Scatter 30%</button>
       <button id="regroup">Regroup</button>
+      <button id="speedDown">Speed −</button>
+      <button id="speedUp">Speed +</button>
     </div>
+    <div id="simStatus">Sim speed 1.00x · Sim time 0.0 s</div>
     <div style="
       margin-top:14px;
       font-size:8px;
@@ -620,6 +632,15 @@ fish.add(modelFix);
       releaseLeft: 0,
     };
 
+    // EN: Runtime simulation speed multiplier.
+    // EN: This scales the simulation time step without changing real frame time.
+    let simSpeed = 1.0;
+
+    // EN: Accumulated simulation time in seconds (scaled by simSpeed).
+    let simTime = 0;
+
+    // EN: Throttle status text updates to twice per second.
+    let simStatusLastUiMs = 0;
 
 
     // EN: Camera setup must happen after params initialization.
@@ -1050,6 +1071,14 @@ fish.add(modelFix);
     resampleReactionLags();
     }
 
+    function updateSimStatus() {
+      // EN: Updates simulation status line showing speed multiplier and simulated time.
+      // EN: UI update is throttled to avoid DOM updates every frame.
+      const simStatusEl = document.getElementById("simStatus");
+      if (!simStatusEl) return;
+      simStatusEl.textContent = `Sim speed ${simSpeed.toFixed(2)}x · Sim time ${simTime.toFixed(1)} s`;
+    }
+
     // ---------- UI binding ----------
     function bindSlider(id, valId, onChange) {
       const el = document.getElementById(id);
@@ -1100,6 +1129,18 @@ fish.add(modelFix);
     document.getElementById("regroup").addEventListener("click", () => {
       for (let i = 0; i < N; i++) setMode(i, false);
     });
+
+  document.getElementById("speedDown").addEventListener("click", () => {
+    // EN: Reduce simulation speed by 20%, with a lower safety limit.
+    simSpeed = Math.max(0.10, simSpeed * 0.8);
+    updateSimStatus();
+  });
+
+  document.getElementById("speedUp").addEventListener("click", () => {
+    // EN: Increase simulation speed by 25%, with an upper safety limit.
+    simSpeed = Math.min(100.0, simSpeed * 1.25);
+    updateSimStatus();
+  });
     // EN: HUD is opened/closed explicitly via the footer toggle (deterministic on mobile).
     const hud = document.getElementById("hud");
     const hudToggle = document.getElementById("hudToggle");
@@ -1919,20 +1960,29 @@ function step(dt) {
     applyDensity();
     applySoloIndependence();
     showHud(); // EN: Open HUD by default; in landscape it is a fixed visible panel.
+    updateSimStatus();
 
-    let simTime = 0; // EN: simulation time accumulator (seconds)
-let lastT = performance.now();
+    let lastT = performance.now();
     function loop(t) {
-      const dt = (t - lastT) / 1000;
+      const realDt = (t - lastT) / 1000;
       lastT = t;
 
-      simTime += dt;
+      // EN: Scale simulation time by the current speed multiplier.
+      // EN: Keep an upper cap for stability on slower devices.
+      const simDt = Math.min(0.033, realDt * simSpeed);
+      simTime += simDt;
 
       animateLights(t);
 
-      step(dt);
-      updateBubbles(dt);
+      step(simDt);
+      updateBubbles(simDt);
       renderMeshes();
+
+      // EN: Refresh the status line at 0.5 s intervals to avoid visual flicker.
+      if ((t - simStatusLastUiMs) >= 1000) {
+        updateSimStatus();
+        simStatusLastUiMs = t;
+      }
 
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
