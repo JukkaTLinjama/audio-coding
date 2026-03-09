@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v6.4</title>
+  <title>Fish School (Boids) – v7</title>
   <style>
     html,
     body {
@@ -32,9 +32,7 @@
       padding: 16px 18px 24px 18px;
       border-radius: 18px 18px 0 0;
 
-      background: rgba(0,0,0,0.18);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
+      background: rgba(0, 0, 0, 0.18);
 
       transform: translateY(85%);
       transition: transform 0.35s cubic-bezier(.25,.8,.25,1);
@@ -75,6 +73,15 @@
       background: rgba(255, 255, 255, 0.14);
       color: #aeadad;
     }
+
+    /* EN: Status line for simulation speed and accumulated simulation time */
+    #simStatus {
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+      color: rgba(220,220,220,0.72);
+      letter-spacing: 0.2px;
+    }
     #hud {
       transition: opacity 620ms ease, transform 620ms ease;
     }
@@ -108,9 +115,7 @@
         #hud {
           padding: 8px 10px;
           font: 12px/1.15 -apple-system, system-ui, sans-serif;
-          background: rgba(0,0,0,0.10);
-          backdrop-filter: blur(2px);
-          -webkit-backdrop-filter: blur(2px);
+          background: rgba(0,0,0,0.42);
         }
         #hud label { width: 120px; }
         #hud span  { width: 42px; font-size: 12px; }
@@ -168,8 +173,9 @@
     #versionBar{
       position: fixed;
       top: 8px;
-      left: 8px;
-      right: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(920px, calc(100vw - 16px));
       padding: 6px 10px;
       border-radius: 12px;
       background: rgba(255,255,255,0.10);
@@ -177,8 +183,6 @@
       font: 12px/1.2 -apple-system, system-ui, sans-serif;
       letter-spacing: 0.25px;
       text-align: center;
-      backdrop-filter: blur(3px);
-      -webkit-backdrop-filter: blur(3px);
       z-index: 10002; /* above HUD toggle */
       pointer-events: none; /* EN: allow clicks to pass through to canvas/HUD */
     }
@@ -187,71 +191,64 @@
 /* EN: Mobile landscape -> left drawer HUD (toggleable) */
     @media (max-width: 980px) and (orientation: landscape) {
 
-      /* HUD becomes a left drawer */
       #hud {
-        top: 0;
+        top: 52px;   /* EN: leave room for version bar */
         bottom: 0;
         left: 0;
         right: auto;
 
-        width: 240px;
+        width: 260px;
         height: auto;
 
-        border-radius: 0 18px 18px 0;
+        padding: 14px 14px 18px 14px;
+        border-radius: 0 16px 0 0;
 
-        /* EN: hide by sliding left; only a small edge remains clickable via #hudToggle */
-        transform: translateX(-92%);
-        transition: transform 320ms cubic-bezier(.25,.8,.25,1);
+        background: rgba(0,0,0,0.28);
+
+        transform: none;    /* EN: fixed visible side panel */
+        transition: none;
 
         overflow-y: auto;
       }
 
       /* EN: open state */
       #hud.is-open {
-        transform: translateX(0%);
+        transform: none;
       }
 
-      /* Full-height hit area on the left edge (no text needed) */
       #hudToggle {
-        display: block;
-        position: fixed;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: auto;
-
-        width: 28px;                 /* EN: edge-tab width */
-        padding: 0;                  /* EN: no bottom padding in landscape */
-        background: rgba(0,0,0,0.14);
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-
-        z-index: 10001;
+        display: none; /* EN: Landscape uses a fixed left panel, no drawer toggle */
       }
+
     }
 
   </style>
 </head>
 
 <body>
-  <div id="versionBar">Fish School v6.4 – Calm Target Lock (Smooth Turns)</div>
-    <div id="hud">
-      <div style="
-        font-weight:600;
-        font-size:15px;
-        margin-bottom:8px;
-        opacity:0.9;
-      ">
-        Controls
-      </div>
+  <div id="versionBar">Fish School v7 – sim time control</div>
+  <div id="hud">
+    <div style="
+      font-weight:600;
+      font-size:15px;
+      margin-bottom:8px;
+      opacity:0.9;
+    ">
+      Controls
+    </div>
+
+    <div class="row">
+      <label>Sim speed</label>
+      <input id="simSpeed" type="range" min="0.10" max="100.00" step="0.10" value="1.00">
+      <span id="simSpeedVal">1.00</span>
+    </div>
 
     <div class="row">
       <label>View zoom</label>
-      <input id="viewZoom" type="range" min="0.80" max="2.20" step="0.01" value="1.00">
-      <span id="viewZoomVal">1.00</span>
+      <input id="viewZoom" type="range" min="0.60" max="4.00" step="0.01" value="1.00">      <span id="viewZoomVal">1.00</span>
     </div>
 
-      <div class="row">
+    <div class="row">
       <label>Solo independence</label>
       <input id="soloInd" type="range" min="0" max="1" step="0.01" value="0.70">
       <span id="soloIndVal">0.70</span>
@@ -263,22 +260,29 @@
     </div>
     <div class="row">
       <label>Target speed</label>
-      <input id="targetSpeed" type="range" min="0" max="4" step="0.05" value="1.8">
-      <span id="targetSpeedVal">1.80</span>
+      <input id="targetSpeed" type="range" min="0" max="4" step="0.05" value="0.8">
+      <span id="targetSpeedVal">0.80</span>
     </div>
-
+    <div class="row">
+      <label>Target pull</label>
+      <input id="targetPull" type="range" min="0" max="4" step="0.05" value="1.15">
+      <span id="targetPullVal">1.15</span>
+    </div>
     <div class="row">
       <label>Reaction lag (s)</label>
       <input id="reactionLag" type="range" min="0" max="2.80" step="0.1" value="0.88">
-      <span id="reactionLagVal">0.88</span>
+      <span id="reactionLagVal">0.18</span>
     </div>
     <div class="row">
       <button id="scatter">Scatter 30%</button>
       <button id="regroup">Regroup</button>
+      <button id="speedDown">Speed −</button>
+      <button id="speedUp">Speed +</button>
     </div>
+    <div id="simStatus">Sim speed 1.00x · Sim time 0.0 s</div>
     <div style="
       margin-top:14px;
-      font-size:11px;
+      font-size:8px;
       opacity:0.5;
       text-align:center;
     ">
@@ -324,28 +328,28 @@
     // EN: Reusable scratch objects for turn-rate limiting (avoid per-frame allocations).
     const _rotAxis = new THREE.Vector3();
     const _rotQuat = new THREE.Quaternion();
+    
+  // EN: allocation-free helper version (not used by steering logic)
+    function rotateDirTowardOut(currentDir, targetDir, maxAngleRad, outDir) {
+      // EN: Rotate currentDir toward targetDir by at most maxAngleRad (both assumed normalized).
+      // EN: Used for "swim-like" arcs when a fish focuses near the camera.
+      outDir.copy(currentDir);
 
-    function rotateDirTowardOut(currentDir, targetDir, maxAngleRad, outDir) {       // EN: Rotate currentDir toward targetDir by at most maxAngleRad (both assumed normalized).
-        // EN: Used for "swim-like" arcs when a fish focuses near the camera.
-        // EN: Allocation-free variant used only if explicit output vector is needed.
-      // EN: Avoid name clash with main rotateDirToward().
-        outDir.copy(currentDir);
+      const dot = clamp(currentDir.dot(targetDir), -1, 1);
+      const angle = Math.acos(dot);
+      if (angle < 1e-6) return outDir;
 
-        const dot = clamp(currentDir.dot(targetDir), -1, 1);
-        const angle = Math.acos(dot);
-        if (angle < 1e-6) return outDir;
+      const step = Math.min(maxAngleRad, angle);
 
-        const step = Math.min(maxAngleRad, angle);
+      _rotAxis.copy(currentDir).cross(targetDir);
+      const axisLen = _rotAxis.length();
+      if (axisLen < 1e-6) return outDir; // parallel / anti-parallel
 
-        _rotAxis.copy(currentDir).cross(targetDir);
-        const axisLen = _rotAxis.length();
-        if (axisLen < 1e-6) return outDir; // parallel / anti-parallel
+      _rotAxis.multiplyScalar(1 / axisLen);
+      _rotQuat.setFromAxisAngle(_rotAxis, step);
 
-        _rotAxis.multiplyScalar(1 / axisLen);
-        _rotQuat.setFromAxisAngle(_rotAxis, step);
-
-        outDir.applyQuaternion(_rotQuat).normalize();
-        return outDir;
+      outDir.applyQuaternion(_rotQuat).normalize();
+      return outDir;
     }
 
     // ---------- Scene ----------
@@ -363,6 +367,8 @@
       0.1,
       200
     );
+    // EN: Base FOV for zooming (do not change during runtime).
+      const baseFov = camera.fov;
 
     const lightA = new THREE.HemisphereLight(0xffffff, 0x223355, 0.9);
     scene.add(lightA);
@@ -564,13 +570,6 @@ fish.add(modelFix);
       minSpeed: 0.6,   // units/s
       maxSteer: 3.6,   // units/s^2
 
-
-      // EN: Global calm turning at low speed (applies to all fish except test fish during focus).
-      slowTurnEnabled: true,
-      slowTurnRateLow: 0.55,       // rad/s when slow (try 0.25..1.0)
-      slowTurnRateHigh: 2.40,      // rad/s when fast (try 1.5..4.0)
-      slowTurnSpeedRef: 1.20,      // speed where turning is mostly normal
-      slowTurnVerticalDamp: 0.55,  // 0..1, reduces pitch snap ("floating")
       // Path following (random smooth closed curve in XY, drawn on screen)
       center: new THREE.Vector3(0, 0, 0),
       pathRadius: 7.0,       // average radius of the curve
@@ -582,10 +581,17 @@ fish.add(modelFix);
       pathAttractK: 0.35,    // pull strength toward the curve (tune 0.2..1.2)
 
       // Path leader (single moving target along the curve)
-      pathLeaderSpeed: 1.8,  // world units / second along the curve
+      pathLeaderSpeed: 0.8,  // world units / second along the curve
       pathLeaderU: 0.0,      // 0..1 start phase on the curve
       showPathLeader: false,  // draw a small marker for debugging
 
+      // EN: Global calm turning at low speed (applies to all fish except focus test fish).
+      slowTurnEnabled: true,
+      slowTurnRateLow: 1.55,       // rad/s when slow (try 0.25..1.0)
+      slowTurnRateHigh: 3.40,      // rad/s when fast (try 1.5..4.0)
+      slowTurnSpeedRef: 1.0,      // speed where turning is mostly normal
+      slowTurnVerticalDamp: 0.35,  // 0..1, reduces pitch snap ("floating")
+      targetPullK: 1.15, // EN: direct pull toward active leader point (added to pathAttractK), tune 0..2 for stronger/weaker target focus
 
       // ---------- Secondary school/path (B) ----------
       // EN: School B can run with N=0 (no fish) while its path/leader still animates.
@@ -600,11 +606,11 @@ fish.add(modelFix);
       pathSamplesB: 200,
       pathSpeedB: 1.25,          // EN: flow direction reference (if fish are added later)
       pathAttractKB: 0.30,       // EN: (unused when N=0) pull strength toward B corridor
-      pathLeaderSpeedB: 0.52,     // EN: world units / second along curve B
+      pathLeaderSpeedB: 0.42,     // EN: world units / second along curve B
       pathLeaderUB: 0.35,
       showPathLeaderB: false,
       showPathB: true,
-      testFishUsePathB: true, // EN: if true, fish #0 follows Path B instead of Path A
+      testFishUsePathB: false, // EN: if true, fish #0 follows Path B instead of Path A
 
 
       // EN: Average reaction lag (seconds). 0 = instant response.
@@ -632,6 +638,27 @@ fish.add(modelFix);
       releaseLeft: 0,
     };
 
+    const visitState = {
+      active: false,
+      timeLeft: 0,
+    };
+
+    // EN: Runtime simulation speed multiplier.
+    // EN: This scales the simulation time step without changing real frame time.
+    let simSpeed = 1.0;
+    // EN: Accumulated simulation time in seconds.
+    let simTime = 0;
+
+    // EN: Fixed-step accumulator state for stable simulation speed scaling.
+    let simAccumulator = 0;
+    const simFixedDt = 1 / 60;
+    const maxSimStepsPerFrame = 240;
+
+    // EN: Throttle status text updates to avoid DOM churn.
+    //let simStatusLastUiMs = 0;
+
+    // EN: Throttle status text updates to twice per second.
+    let simStatusLastUiMs = 0;
 
 
     // EN: Camera setup must happen after params initialization.
@@ -658,113 +685,6 @@ fish.add(modelFix);
     const bubbleCount = 3;
     // EN: Random cooldown between bubble bursts (breaks the continuous tube)
       let bubbleCooldownA = 0;
-
-
-    // ---------- BubbleEngine (v6.4) ----------
-    // EN: Small pooled bubble system for reusing both target bubbles and (later) mouth bubbles.
-    const BubbleEngine = {
-      _scene: null,
-      _geom: null,
-      _pool: [],
-      _head: 0,
-
-      // Defaults (tuned to current v6.3 bubble look)
-      cfg: {
-        poolSize: 64,
-        radius: 0.025,
-        seg: 8,
-        opacity: 0.9,
-        lifeMin: 1.0,
-        lifeMax: 3.0,
-        riseBase: 0.6,
-        riseRand: 0.8,
-        riseScale: 0.2,         // EN: 0.1x..0.2x slower rise; keep in one knob
-        driftXZ: 0.02,          // EN: per-frame jitter amplitude (kept for now)
-        // EN: Spawn cloud radius: r = rMin + rSpan * rand
-        spawnRMin: 0.35,
-        spawnRSpan: 1.15
-      },
-
-      init(scene) {
-        this._scene = scene;
-        this._geom = new THREE.SphereGeometry(this.cfg.radius, this.cfg.seg, this.cfg.seg);
-
-        // EN: Pre-create pooled meshes. Each bubble needs its own material to vary opacity independently.
-        this._pool = [];
-        this._head = 0;
-
-        for (let i = 0; i < this.cfg.poolSize; i++) {
-          const mat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.0,
-            depthWrite: false
-          });
-          const m = new THREE.Mesh(this._geom, mat);
-          m.visible = false;
-          m.renderOrder = 9997;
-          m.userData.age = 0;
-          m.userData.life = 1.0;
-          m.userData.riseSpeed = 0.0;
-          this._scene.add(m);
-          this._pool.push(m);
-        }
-      },
-
-      emitBurst(pos, count) {
-        if (!this._scene || !this._pool.length) return;
-
-        for (let k = 0; k < count; k++) {
-          const m = this._pool[this._head];
-          this._head = (this._head + 1) % this._pool.length;
-
-          // EN: Re-initialize bubble state
-          m.userData.age = 0;
-          m.userData.life = this.cfg.lifeMin + Math.random() * (this.cfg.lifeMax - this.cfg.lifeMin);
-          m.userData.riseSpeed = (this.cfg.riseBase + Math.random() * this.cfg.riseRand) * this.cfg.riseScale;
-
-          // EN: Spawn cloud around leader (wider, softer)
-          const r = this.cfg.spawnRMin + this.cfg.spawnRSpan * Math.random();
-          m.position.copy(pos);
-          m.position.x += (Math.random() - 0.5) * r;
-          m.position.y += (Math.random() - 0.5) * (0.55 * r);
-          m.position.z += (Math.random() - 0.5) * r;
-
-          m.material.opacity = this.cfg.opacity;
-          m.visible = true;
-        }
-      },
-
-      update(dt) {
-        if (!this._pool.length) return;
-
-        for (let i = 0; i < this._pool.length; i++) {
-          const b = this._pool[i];
-          if (!b.visible) continue;
-
-          b.userData.age += dt;
-
-          if (b.userData.age >= b.userData.life) {
-            b.visible = false;
-            b.material.opacity = 0.0;
-            continue;
-          }
-
-          // Rise upward
-          b.position.y += b.userData.riseSpeed * dt;
-
-          // Slight horizontal drift (kept as-is for now, user accepted v6.3 look)
-          b.position.x += (Math.random() - 0.5) * this.cfg.driftXZ;
-          b.position.z += (Math.random() - 0.5) * this.cfg.driftXZ;
-
-          const t = b.userData.age / b.userData.life;
-
-          // EN: Smooth fade-in + fade-out using sine curve (0→1→0)
-          const fade = Math.sin(Math.PI * t);
-          b.material.opacity = this.cfg.opacity * fade;
-        }
-      }
-    };
 
     // ---------- Secondary path (B) ----------
     let pathCurveB = null;
@@ -933,13 +853,65 @@ fish.add(modelFix);
     }
 
     function spawnBubbles(pos) {
-        // EN: Delegate to BubbleEngine pool (v6.4)
-        BubbleEngine.emitBurst(pos, bubbleCount);
+        for (let i = 0; i < bubbleCount; i++) {
+
+          const geom = new THREE.SphereGeometry(0.025, 8, 8);
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false
+          });
+
+          const m = new THREE.Mesh(geom, mat);
+
+          // EN: Wider, softer spawn cloud (not a thin tube)
+          const r = 0.35 + 1.15 * Math.random(); // 0.35..1.50
+          m.position.copy(pos).add(new THREE.Vector3(
+            (Math.random() - 0.5) * r,
+            (Math.random() - 0.5) * (0.55 * r),
+            (Math.random() - 0.5) * r
+          ));
+
+          m.userData.life = 1 + Math.random() * 2; // 1..3 sec
+          m.userData.age = 0;
+          m.userData.riseSpeed = (0.6 + Math.random() * 0.8) * 0.2; // EN: 10x slower rise
+          // EN: Smooth drift velocity (set once; no per-frame jitter)
+          m.userData.vel = new THREE.Vector3(
+            (Math.random() * 2 - 1) * 0.015,
+            m.userData.riseSpeed,
+            (Math.random() * 2 - 1) * 0.015
+          );
+          scene.add(m);
+          bubblePool.push(m);
+        }
       }
 
     function updateBubbles(dt) {
-        // EN: Delegate to BubbleEngine pool (v6.4)
-        BubbleEngine.update(dt);
+        for (let i = bubblePool.length - 1; i >= 0; i--) {
+          const b = bubblePool[i];
+          b.userData.age += dt;
+
+          // Rise upward
+          b.position.y += b.userData.riseSpeed * dt;
+
+          // Slight horizontal drift
+          b.position.x += (Math.random() - 0.5) * 0.02;
+          b.position.z += (Math.random() - 0.5) * 0.02;
+          const t = b.userData.age / b.userData.life;
+
+          // EN: Smooth fade-in + fade-out using sine curve (0→1→0)
+          const fade = Math.sin(Math.PI * t);
+
+          b.material.opacity = 0.9 * fade;
+
+          if (t >= 1) {
+            scene.remove(b);
+            b.geometry.dispose();
+            b.material.dispose();
+            bubblePool.splice(i, 1);
+          }
+        }
       }
 
     function findNearestPathIndex(p) {
@@ -1047,8 +1019,6 @@ fish.add(modelFix);
       rebuildPath();
       rebuildPathB();
 
-      BubbleEngine.init(scene); // EN: initialize pooled bubbles once
-
       // Initialize leader progress along the curve
       pathLeaderU = (params.pathLeaderU || 0) % 1;
 
@@ -1119,6 +1089,26 @@ fish.add(modelFix);
     resampleReactionLags();
     }
 
+  let lastSimDt = 0;
+
+  // EN: debug diagnostics for real simulation rate
+  let simSecondsPerRealSecond = 0;
+  let lastRealTime = performance.now();
+  let lastSimTimeForRate = 0;
+
+  function updateSimStatus() {
+    // EN: Show sim speed, accumulated simulation time, fixed dt, backlog and real simulation rate
+    const simStatusEl = document.getElementById("simStatus");
+    if (!simStatusEl) return;
+
+    simStatusEl.textContent =
+      `Sim speed ${simSpeed.toFixed(2)}x · ` +
+      `Sim time ${simTime.toFixed(1)} s · ` +
+      `dt ${lastSimDt.toFixed(3)} s · ` +
+      `acc ${simAccumulator.toFixed(3)} s · ` +
+      `simRate ${simSecondsPerRealSecond.toFixed(1)}x`;
+  }
+
     // ---------- UI binding ----------
     function bindSlider(id, valId, onChange) {
       const el = document.getElementById(id);
@@ -1131,6 +1121,12 @@ fish.add(modelFix);
       el.addEventListener("input", update, { passive: true });
       update();
     }
+
+    bindSlider("simSpeed", "simSpeedVal", (v) => {
+      simSpeed = v;
+      updateSimStatus();
+    });
+    
     bindSlider("viewZoom", "viewZoomVal", (v) => {
       params.viewZoom = v;
       updateCameraForHud();
@@ -1149,8 +1145,10 @@ fish.add(modelFix);
       // EN: Target speed slider drives BOTH leaders so Path B follows the same speed changes.
       params.pathLeaderSpeed = v;
       params.pathLeaderSpeedB = v; // <-- add this
-  });
-
+    });
+    bindSlider("targetPull", "targetPullVal", (v) => {
+      params.targetPullK = v;
+    });
     bindSlider("reactionLag", "reactionLagVal", (v) => {
       params.reactionLag = v;
       // EN: Keep the test fish (#0) in the main school at startup.
@@ -1167,6 +1165,18 @@ fish.add(modelFix);
     document.getElementById("regroup").addEventListener("click", () => {
       for (let i = 0; i < N; i++) setMode(i, false);
     });
+
+  document.getElementById("speedDown").addEventListener("click", () => {
+    // EN: Reduce simulation speed by 20%, with a lower safety limit.
+    simSpeed = Math.max(0.10, simSpeed * 0.8);
+    updateSimStatus();
+  });
+
+  document.getElementById("speedUp").addEventListener("click", () => {
+    // EN: Increase simulation speed by 25%, with an upper safety limit.
+    simSpeed = Math.min(100.0, simSpeed * 1.25);
+    updateSimStatus();
+  });
     // EN: HUD is opened/closed explicitly via the footer toggle (deterministic on mobile).
     const hud = document.getElementById("hud");
     const hudToggle = document.getElementById("hudToggle");
@@ -1253,7 +1263,18 @@ fish.add(modelFix);
 
 function step(dt) {
       // dt capped for stability (mobile frame drops)
-      dt = Math.min(0.033, dt);
+      //dt = Math.min(0.033, dt);
+        // EN: Test mode - do not clamp dt here.
+  // EN: This lets us observe where the simulation becomes unstable.
+
+      // EN: Temporary Path B visit for fish #0, then automatic return to Path A.
+      if (visitState.active) {
+        visitState.timeLeft -= dt;
+        if (visitState.timeLeft <= 0) {
+          visitState.active = false;
+          visitState.timeLeft = 0;
+        }
+      }
 
       // Advance the global leader along the curve (once per step)
       // EN: Persistent u parameter prevents snapping at self-intersections.
@@ -1312,10 +1333,27 @@ function step(dt) {
         globalCount++;
       }
       if (globalCount > 0) globalCenter.multiplyScalar(1 / globalCount);
+        // EN: School-center follow term for very low leader speed.
+        // EN: This adds a shared translation target so the flock does not slowly spread
+        // EN: while each fish independently chases the same slow leader point.
+        const schoolToLeaderA = new THREE.Vector3();
+        const schoolToLeaderB = new THREE.Vector3();
 
-      for (let i = 0; i < N; i++) {
-        const p = P[i];
-        const v = V[i];
+        if (globalCount > 0) {
+          schoolToLeaderA.copy(leaderPos).sub(globalCenter);
+          schoolToLeaderB.copy(leaderPosB).sub(globalCenter);
+        }
+        for (let i = 0; i < N; i++) {
+          const p = P[i];
+          const v = V[i];
+
+          // EN: Active leader speed for this fish (A or B path).
+          const useLeaderSpeed = (i === 0 && (params.testFishUsePathB || visitState.active))
+            ? params.pathLeaderSpeedB
+            : params.pathLeaderSpeed;
+
+          // EN: Normalized leader speed 0..1 for low-speed behavior blending.
+        const leaderSpeed01 = clamp(useLeaderSpeed / 1.8, 0, 1);
 
         tmp.sumPos.set(0, 0, 0);
         tmp.sumVel.set(0, 0, 0);
@@ -1359,30 +1397,35 @@ function step(dt) {
           // Separation: keep magnitude (stronger when very close), but clamp to avoid instability
           if (tmp.sep.lengthSq() > 1e-8) {
             clampLen(tmp.sep, 3.0); // max separation impulse (tune 1.5..6.0)
-            tmp.desired.addScaledVector(tmp.sep, params.wSeparation);
+
+            // EN: When leader moves very slowly, reduce separation a bit so the school
+            // EN: does not slowly inflate while trying to hold formation.
+            const sepWeightThis = params.wSeparation * lerp(0.55, 1.00, leaderSpeed01);
+
+            tmp.desired.addScaledVector(tmp.sep, sepWeightThis);
           }
-       }
+        }
 
         // Path leader following: the whole school follows a single moving point on the curve.
         // EN: No nearest-point lookup => no snapping when the curve self-intersects.
-        const useLeaderPos = (i === 0 && params.testFishUsePathB) ? leaderPosB : leaderPos;
-        const useLeaderTan = (i === 0 && params.testFishUsePathB) ? leaderTanB : leaderTan;
+        const useLeaderPos = (i === 0 && (params.testFishUsePathB || visitState.active)) ? leaderPosB : leaderPos;
+        const useLeaderTan = (i === 0 && (params.testFishUsePathB || visitState.active)) ? leaderTanB : leaderTan;
         // EN: Use the stop-ease of the ACTIVE leader for this fish.
-        const stopEaseThis = (i === 0 && params.testFishUsePathB) ? stopEaseB : stopEaseA;
+        const stopEaseThis = (i === 0 && (params.testFishUsePathB || visitState.active)) ? stopEaseB : stopEaseA;
 
-        const flowScaleThis = Math.max(0.35, 1 - 0.95 * stopEaseThis); // EN: keep some forward flow even when leader slows        
-        const minSpeedThis = lerp(params.minSpeed, 0.05, stopEaseThis);
-        const pointPullThis = 0.12 + 0.65 * stopEaseThis;
-        // EN: Minimum cruising speed used for cruise blend.
-        // EN: Prevents fish from freezing when forward flow becomes small.
-
-        tmp.toPath.copy(useLeaderPos).sub(p);
+        // EN: At very low leader speed, school behavior should shift
+        // EN: from path streaming to local formation holding.
+        const flowScaleThis = lerp(0.18, 1.00, leaderSpeed01);
+        const minSpeedThis = lerp(0.08, params.minSpeed, leaderSpeed01);
+          // EN: Adjustable direct pull to the active leader point.
+          // EN: Stronger at low speed, weaker at higher speed.
+          const pointPullThis = params.targetPullK * lerp(1.00, 0.22 / 1.15, leaderSpeed01);        tmp.toPath.copy(useLeaderPos).sub(p);
         // EN: Small direct pull toward the leader point to reduce persistent corridor offset,
         // EN: especially when the leader slows/stops.
-        if (tmp.toPath.lengthSq() > 1e-8) {
-          tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
-          tmp.desired.addScaledVector(tmp.r2, pointPullThis);
-         }
+          if (tmp.toPath.lengthSq() > 1e-8) {
+            tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
+            tmp.desired.addScaledVector(tmp.r2, pointPullThis);
+          }
 
         // EN: Lateral error only (remove forward component)
         const fwd = useLeaderTan; // unit
@@ -1399,27 +1442,56 @@ function step(dt) {
 
         // EN: When far from the leader line, prioritize lateral correction and reduce forward bias.
         // kLatGain tunes how aggressively the school returns to the path corridor.
-        const kLatGain = 1.8;                 // try 1.2..3.0
-        const latWeight = attractK * Math.min(latDist, 6.0) * kLatGain;
+          const kLatGain = 1.8;
 
-        tmp.desired.addScaledVector(tmp.r1, latWeight);
+          // EN: At very low leader speed, reduce corridor-style lateral correction.
+          // EN: This tests whether slow-speed spreading is caused by fish individually
+          // EN: trying to correct sideways path error instead of holding formation.
+          const latFollowK = lerp(0.15, 1.00, leaderSpeed01);
+
+          const latWeight =
+            attractK *
+            Math.min(latDist, 6.0) *
+            kLatGain *
+            latFollowK;
+
+          tmp.desired.addScaledVector(tmp.r1, latWeight);
 
         // EN: Gate forward flow by lateral error so fish don't "lock" into an offset orbit.
         const gate = 1 / (1 + 0.9 * latDist); // latDist=0 => 1, latDist large => smaller
-        tmp.desired.addScaledVector(useLeaderTan, params.pathSpeed * gate * flowScaleThis);
-        // EN: Always keep a small drift along the leader tangent to prevent freezing into static formations.
-        tmp.desired.addScaledVector(useLeaderTan, 0.25);
+        // EN: Forward path flow must follow the ACTIVE leader speed.
+        // EN: Otherwise the school keeps trying to cruise fast while the leader crawls.
+        tmp.desired.addScaledVector(useLeaderTan, useLeaderSpeed * gate * flowScaleThis);
+        // EN: At very low leader speed, the flock needs a shared "school center follows leader"
+        // EN: term, not only per-fish chasing of the leader point.
+        if (!isSolo[i] && globalCount > 0) {
+          const schoolToLeader = (i === 0 && (params.testFishUsePathB || visitState.active)) ? schoolToLeaderB : schoolToLeaderA;
+          const schoolDist = schoolToLeader.length();
 
+          if (schoolDist > 1e-6) {
+            tmp.r2.copy(schoolToLeader).multiplyScalar(1 / schoolDist);
+
+            // EN: Strong when leader is slow, fades out when leader speed increases.
+            const centerFollowK = lerp(1.10, 0.00, leaderSpeed01);
+
+            tmp.desired.addScaledVector(tmp.r2, centerFollowK);
+          }
+        }
         // EN: Stronger flow boost when the fish is more independent (low flock[i]).
         // This keeps "satellites" moving with the stream without merging into the main school.
         if (isSolo[i]) {
-          const soloFlow = params.soloFlowBoostMax * (1 - flock[i]); // flock≈1 => ~0, flock≈0 => max boost
+          // EN: Independent fish may still drift with the stream,
+          // EN: but low-speed mode must suppress extra forward flow.
+          const soloFlow =
+            params.soloFlowBoostMax *
+            (1 - flock[i]) *
+            leaderSpeed01;
           tmp.desired.addScaledVector(useLeaderTan, soloFlow);
         }
 
         // Keep school fairly thin in Z (soft pull toward z=0)
         // EN: Keep schools thin in Z, but pull toward the active path center (A: z=0, B: pathCenterZB).
-        const targetZ = (i === 0 && params.testFishUsePathB) ? params.pathCenterZB : 0.0;
+        const targetZ = (i === 0 && (params.testFishUsePathB || visitState.active)) ? params.pathCenterZB : 0.0;
         tmp.desired.z += (targetZ - p.z) * params.zWanderK;
 
         // Add smoothed noise
@@ -1436,7 +1508,9 @@ function step(dt) {
             toGlobal.normalize();
             // EN: Density-aware "glue" keeps high-density schools unified.
             // EN: Glue only the main school; satellites (solo) should not be pulled to the global center.
-            const glue = lerp(0.00, 0.42, clamp(params.density / 2, 0, 1));
+            const glueBase = lerp(0.00, 0.42, clamp(params.density / 2, 0, 1));
+            // EN: Slow leader => slightly stronger global glue for the main school.
+            const glue = glueBase * lerp(1.35, 1.00, leaderSpeed01);
             if (!isSolo[i]) tmp.desired.addScaledVector(toGlobal, glue);
           }
         }
@@ -1512,18 +1586,24 @@ function step(dt) {
 
         // Convert desired direction into target speed (cruise-like)
         // EN: During focus, tmp.desired already encodes a desired velocity (including speed).
-        if (!(focusState.active && i === 0)) {
-          // EN: Let pathSpeed act as a speed multiplier, not just a direction bias.
-          const sp = clamp(params.pathSpeed / 1.55, 0.3, 2.5);
+          if (!(focusState.active && i === 0)) {
+            // EN: At low leader speed, do not force every fish to cruise at a fixed speed.
+            // EN: Let the summed steering magnitude stay smaller so the school can hover.
+            const cruise = lerp(minSpeedThis, params.maxSpeed, leaderSpeed01);
 
-          // EN: When leader slows, also reduce cruise speed strongly (prevents "orbiting" when target stops).
-          const cruiseStopScale = 1 - 0.85 * stopEaseThis; // 1..~0.15
-          const cruise = lerp(params.minSpeed, params.maxSpeed, 0.55) * sp * cruiseStopScale;
+            const desiredLen = tmp.desired.length();
+            if (desiredLen > 1e-8) {
+              const normalizeK = lerp(0.18, 1.00, leaderSpeed01);
 
-          if (tmp.desired.lengthSq() > 1e-8) setMag(tmp.desired, cruise);
-        } else {
-          // EN: Focus: keep desired speed as computed (arrive/hold/release).
-        }
+              // EN: Blend between keeping natural summed magnitude (slow leader)
+              // EN: and full cruise normalization (fast leader).
+              const targetMag = lerp(Math.min(desiredLen, cruise), cruise, normalizeK);
+
+              setMag(tmp.desired, targetMag);
+            }
+          } else {
+            // EN: Focus: keep desired speed as computed (arrive/hold/release).
+          }
 
         // EN: Focus turn-rate limit (swim-like steering). Only applied while focus is active.
         if (i === 0 && focusState.active) {
@@ -1551,30 +1631,38 @@ function step(dt) {
           }
         }
 
-// Steering = desiredVel - currentVel
         // EN: Global low-speed turn calming for ALL fish, except the focus test fish (#0 during focus).
-        if (params.slowTurnEnabled && !(i === 0 && focusState.active) && v.lengthSq() > 1e-8 && tmp.desired.lengthSq() > 1e-8) {
+        if (
+          params.slowTurnEnabled &&
+          !(i === 0 && focusState.active) &&
+          v.lengthSq() > 1e-8 &&
+          tmp.desired.lengthSq() > 1e-8
+        ) {
           const speedNow = v.length();
-          const desiredSpeed = tmp.desired.length();
 
-          // EN: Blend turn rate based on current speed (slow -> low turn rate, fast -> high).
-          const k = clamp(speedNow / Math.max(1e-6, params.slowTurnSpeedRef), 0, 1);
-          const maxTurnRate = lerp(params.slowTurnRateLow, params.slowTurnRateHigh, k);
+          // EN: Only apply calm-turn logic when the fish is actually moving slowly.
+          if (speedNow < params.slowTurnSpeedRef) {
+            const desiredSpeed = tmp.desired.length();
 
-          const curDir = tmp.fwd.copy(v).normalize();
-          const tgtDir = tmp.tangent.copy(tmp.desired).normalize();
+            const k = clamp(speedNow / Math.max(1e-6, params.slowTurnSpeedRef), 0, 1);
+            const maxTurnRate = lerp(params.slowTurnRateLow, params.slowTurnRateHigh, k);
 
-          // EN: Damp vertical turning -> more "floating" in Y.
-          tgtDir.y *= params.slowTurnVerticalDamp;
-          tgtDir.normalize();
+            const curDir = tmp.fwd.copy(v).normalize();
+            const tgtDir = tmp.tangent.copy(tmp.desired).normalize();
 
-          const newDir = rotateDirToward(curDir, tgtDir, maxTurnRate, dt);
-          tmp.desired.copy(newDir).multiplyScalar(desiredSpeed);
+            // EN: Damp vertical turning -> more "floating" in Y at low speed.
+            tgtDir.y *= params.slowTurnVerticalDamp;
+            tgtDir.normalize();
+
+            const newDir = rotateDirToward(curDir, tgtDir, maxTurnRate, dt);
+            tmp.desired.copy(newDir).multiplyScalar(desiredSpeed);
+          }
         }
 
+      // Steering = desiredVel - currentVel
         tmp.steer.copy(tmp.desired).sub(v);
         // EN: Turn-rate limit for Path B test fish even in normal mode (prevents "twitch" on tight curves).
-        if (!params.slowTurnEnabled && !(focusState.active && i === 0) && i === 0 && params.testFishUsePathB && v.lengthSq() > 1e-8 && tmp.desired.lengthSq() > 1e-8) {
+        if (i === 0 && (params.testFishUsePathB || visitState.active) && v.lengthSq() > 1e-8 && tmp.desired.lengthSq() > 1e-8) {
           const curDir = tmp.fwd.copy(v).normalize();
           const tgtDir = tmp.tangent.copy(tmp.desired).normalize();
 
@@ -1592,17 +1680,9 @@ function step(dt) {
 
         // Clamp speed
         const speed = v.length();
-        if (speed > params.maxSpeed) {
-          v.multiplyScalar(params.maxSpeed / speed);
-        } else if (speed < minSpeedThis && speed > 1e-6) {
-          v.multiplyScalar(minSpeedThis / speed);
-        } else if (speed <= 1e-6) {
-          // EN: If we somehow stopped completely, kick back to a small forward speed.
-          v.copy(useLeaderTan).multiplyScalar(minSpeedThis);
-        }
-        // EN: Position integration must happen every frame; keep it outside speed clamp branches.
-        // Integrate position (must always run)
-        p.addScaledVector(v, dt);
+        if (speed > params.maxSpeed) v.multiplyScalar(params.maxSpeed / speed);
+        else if (speed < minSpeedThis) v.multiplyScalar(minSpeedThis / speed);        p.addScaledVector(v, dt);
+
 
         // --- Acceleration decomposition (for visuals) ---
         // a = (v - vPrev) / dt
@@ -1802,10 +1882,11 @@ function step(dt) {
       const visibleFrac = clamp(1 - (hudH + bottomPad) / window.innerHeight, 0.35, 1.0);
 
       // EN: Desired camera distance from target, adjusted for HUD and manual zoom.
-      const targetDist = (params.baseCamZ / visibleFrac) * params.viewZoom;
-
+      const targetDist = (params.baseCamZ / visibleFrac); // EN: distance only compensates HUD
       // EN: Keep the current viewing direction, only change the distance along it.
       // Camera is looking at origin => direction to target is (target - position).  // EN: Camera always zooms relative to the simulation center (world origin).
+      // EN: True zoom via FOV: higher viewZoom => smaller FOV => stronger magnification
+      camera.fov = clamp(baseFov / params.viewZoom, 12, 75);
       const target = params.center;
       const toTarget = new THREE.Vector3().subVectors(target, camera.position);
       if (toTarget.lengthSq() < 1e-8) toTarget.set(0, 0, -1); // fallback
@@ -1903,14 +1984,17 @@ function step(dt) {
       const wasDrag = renderer.domElement._moved;
       dragging = false;
 
-      // EN: A short tap/click (no drag) triggers the focus command for fish #0.
+      // EN: A short tap/click sends fish #0 to Path B temporarily, then it returns to Path A.
       if (!wasDrag) {
-        // Focus only if debug fish exists.
         if (N > 0) {
-          focusState.active = true;
-          focusState.phase = "approach";
-          focusState.holdLeft = params.focusHoldSec;
-          focusState.releaseLeft = params.focusReleaseSec;
+          visitState.active = true;
+          visitState.timeLeft = params.focusHoldSec;
+
+          // EN: Ensure old focus debug mode stays inactive in v7 draft.
+          focusState.active = false;
+          focusState.phase = "idle";
+          focusState.holdLeft = 0;
+          focusState.releaseLeft = 0;
         }
       }
     });
@@ -1925,20 +2009,59 @@ function step(dt) {
     init();
     applyDensity();
     applySoloIndependence();
+    showHud(); // EN: Open HUD by default; in landscape it is a fixed visible panel.
+    updateSimStatus();
 
-    let simTime = 0; // EN: simulation time accumulator (seconds)
-let lastT = performance.now();
+    let lastT = performance.now();
     function loop(t) {
-      const dt = (t - lastT) / 1000;
+      const realDt = (t - lastT) / 1000;
       lastT = t;
 
-      simTime += dt;
+      // EN: Clamp real frame delta to avoid giant catch-up bursts after tab inactivity.
+      const clampedRealDt = Math.min(realDt, 0.25);
+
+      // EN: Add scaled simulation time into the accumulator.
+      simAccumulator += clampedRealDt * simSpeed;
 
       animateLights(t);
 
-      step(dt);
-      updateBubbles(dt);
+      // EN: Advance simulation in fixed-size steps for stability.
+      let simStepsThisFrame = 0;
+      lastSimDt = simFixedDt;
+      while (simAccumulator >= simFixedDt && simStepsThisFrame < maxSimStepsPerFrame) {
+        step(simFixedDt);
+        updateBubbles(simFixedDt);
+
+        simAccumulator -= simFixedDt;
+        simTime += simFixedDt;
+        lastSimDt = simFixedDt;
+        simStepsThisFrame++;
+      }
+
+      // EN: If CPU limit is hit, drop excess backlog to prevent endless catch-up spiral.
+      if (simStepsThisFrame >= maxSimStepsPerFrame && simAccumulator >= simFixedDt) {
+        simAccumulator = 0;
+      }
+
+      // EN: compute actual simulated seconds per real second
+      const now = performance.now();
+      const realElapsed = (now - lastRealTime) / 1000;
+
+      if (realElapsed > 0) {
+        const simDelta = simTime - lastSimTimeForRate;
+        simSecondsPerRealSecond = simDelta / realElapsed;
+      }
+
+      lastRealTime = now;
+      lastSimTimeForRate = simTime;
+
       renderMeshes();
+
+      // EN: Refresh the status line at 0.5 s intervals to avoid visual flicker.
+      if ((t - simStatusLastUiMs) >= 1000) {
+        updateSimStatus();
+        simStatusLastUiMs = t;
+      }
 
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
