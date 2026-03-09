@@ -226,7 +226,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v6.9 – time control</div>
+  <div id="versionBar">Fish School v6.9 – sim time control</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -271,7 +271,7 @@
     <div class="row">
       <label>Reaction lag (s)</label>
       <input id="reactionLag" type="range" min="0" max="2.80" step="0.1" value="0.88">
-      <span id="reactionLagVal">0.88</span>
+      <span id="reactionLagVal">0.18</span>
     </div>
     <div class="row">
       <button id="scatter">Scatter 30%</button>
@@ -641,8 +641,16 @@ fish.add(modelFix);
     // EN: Runtime simulation speed multiplier.
     // EN: This scales the simulation time step without changing real frame time.
     let simSpeed = 1.0;
-    // EN: Accumulated simulation time in seconds (scaled by simSpeed).
+    // EN: Accumulated simulation time in seconds.
     let simTime = 0;
+
+    // EN: Fixed-step accumulator state for stable simulation speed scaling.
+    let simAccumulator = 0;
+    const simFixedDt = 1 / 60;
+    const maxSimStepsPerFrame = 240;
+
+    // EN: Throttle status text updates to avoid DOM churn.
+    //let simStatusLastUiMs = 0;
 
     // EN: Throttle status text updates to twice per second.
     let simStatusLastUiMs = 0;
@@ -1084,7 +1092,7 @@ fish.add(modelFix);
   let lastSimTimeForRate = 0;
 
   function updateSimStatus() {
-    // EN: Show sim speed, accumulated simulation time, dt and real simulation rate
+    // EN: Show sim speed, accumulated simulation time, fixed dt, backlog and real simulation rate
     const simStatusEl = document.getElementById("simStatus");
     if (!simStatusEl) return;
 
@@ -1092,6 +1100,7 @@ fish.add(modelFix);
       `Sim speed ${simSpeed.toFixed(2)}x · ` +
       `Sim time ${simTime.toFixed(1)} s · ` +
       `dt ${lastSimDt.toFixed(3)} s · ` +
+      `acc ${simAccumulator.toFixed(3)} s · ` +
       `simRate ${simSecondsPerRealSecond.toFixed(1)}x`;
   }
 
@@ -1107,7 +1116,7 @@ fish.add(modelFix);
       el.addEventListener("input", update, { passive: true });
       update();
     }
-    
+
     bindSlider("simSpeed", "simSpeedVal", (v) => {
       simSpeed = v;
       updateSimStatus();
@@ -1991,11 +2000,31 @@ function step(dt) {
       const realDt = (t - lastT) / 1000;
       lastT = t;
 
-      // EN: Scale simulation time by the current speed multiplier.
-      // EN: Test mode - allow large simulation dt to find instability threshold.
-      const simDt = realDt * simSpeed;
-      lastSimDt = simDt;
-      simTime += simDt;
+      // EN: Clamp real frame delta to avoid giant catch-up bursts after tab inactivity.
+      const clampedRealDt = Math.min(realDt, 0.25);
+
+      // EN: Add scaled simulation time into the accumulator.
+      simAccumulator += clampedRealDt * simSpeed;
+
+      animateLights(t);
+
+      // EN: Advance simulation in fixed-size steps for stability.
+      let simStepsThisFrame = 0;
+      lastSimDt = simFixedDt;
+      while (simAccumulator >= simFixedDt && simStepsThisFrame < maxSimStepsPerFrame) {
+        step(simFixedDt);
+        updateBubbles(simFixedDt);
+
+        simAccumulator -= simFixedDt;
+        simTime += simFixedDt;
+        lastSimDt = simFixedDt;
+        simStepsThisFrame++;
+      }
+
+      // EN: If CPU limit is hit, drop excess backlog to prevent endless catch-up spiral.
+      if (simStepsThisFrame >= maxSimStepsPerFrame && simAccumulator >= simFixedDt) {
+        simAccumulator = 0;
+      }
 
       // EN: compute actual simulated seconds per real second
       const now = performance.now();
@@ -2009,10 +2038,6 @@ function step(dt) {
       lastRealTime = now;
       lastSimTimeForRate = simTime;
 
-      animateLights(t);
-
-      step(simDt);
-      updateBubbles(simDt);
       renderMeshes();
 
       // EN: Refresh the status line at 0.5 s intervals to avoid visual flicker.
