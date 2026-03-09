@@ -529,24 +529,11 @@ fish.add(modelFix);
 
     // ---------- Parameters (tuned for calm fish school) ----------
     const params = {
-      // --- Debug fish (fish #0 follows a scripted path for eye/mouth debugging) ---
-      debugFish0Enabled: false,
-      debugFish0Radius: 6.0,
-      debugFish0Speed: 0.15,    // cycles per second
-      debugFish0Z: 19.8,
-      debugFish0YOffset: 2.0,
-
-
+ 
       // --- Interaction: Focus debug fish near camera ---
       // EN: When triggered, fish #0 approaches a camera-relative anchor, holds briefly, then returns to its scripted debug motion.
       visitDurationSec: 15.0,
-      focusReleaseSec: 1.2,
-      focusAnchorDistance: 3.6, // EN: distance in front of camera along view direction
-      focusArriveRadius: 0.15,
-      focusMaxSpeed: 9.0,
-      focusMaxTurnRate: 5.6, // EN: rad/s, limits how fast the fish can turn during focus (swim-like arcs)
-      focusVelTau: 0.16, // EN: velocity smoothing time constant (seconds)
-
+     
       // EN: Base camera distance without HUD compensation.
       baseCamZ: 22,     // EN: Manual zoom-out multiplier (UI). 1 = default.
       viewZoom: 1.00,   // EN: Fog baselines (tuned for baseCamZ). We'll scale them with zoom distance.
@@ -744,7 +731,6 @@ fish.add(modelFix);
       pathApproxLength = Math.max(pathApproxLength, 1);
 
 
-
       // Draw path as a thin line
       const geom = new THREE.BufferGeometry().setFromPoints(pathSamplePts.concat([pathSamplePts[0].clone()]));
       const mat = new THREE.LineBasicMaterial({
@@ -763,8 +749,8 @@ fish.add(modelFix);
 
       pathLine = new THREE.Line(geom, mat);
       pathLine.frustumCulled = false;
+      pathLine.visible = false;   // hide debug path at startup
       scene.add(pathLine);
-      // Keep the guide path visible on top of fish and fog.
       pathLine.renderOrder = 9999;
     }
 
@@ -831,9 +817,9 @@ fish.add(modelFix);
 
         pathLineB = new THREE.Line(geom, mat);
         pathLineB.frustumCulled = false;
+        pathLineB.visible = false;  // hide debug path at startup
         scene.add(pathLineB);
-        pathLineB.renderOrder = 9998; // under path A
-      }
+        pathLineB.renderOrder = 9998;      }
     }
 
     function samplePathAtUB(u) {
@@ -1247,13 +1233,6 @@ fish.add(modelFix);
       sep: new THREE.Vector3(),
       desired: new THREE.Vector3(),
       steer: new THREE.Vector3(),
-      // EN: Focus (near-camera) steering scratch
-      focusAnchor: new THREE.Vector3(),
-      focusTo: new THREE.Vector3(),
-      focusVelRaw: new THREE.Vector3(), // EN: raw focus desired velocity (pre-smoothing)
-      focusDir: new THREE.Vector3(),
-      focusDirLimited: new THREE.Vector3(),
-      camWorldPos: new THREE.Vector3(), // EN: camera world position for focus anchor
         r1: new THREE.Vector3(),
         r2: new THREE.Vector3(),
       tangent: new THREE.Vector3(),
