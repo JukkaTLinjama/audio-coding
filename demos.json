@@ -2,9 +2,9 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "fish school v7",
+            "id": "fish school v8",
             "title": "simulation of fish school v7.x",
-            "path": "./parvisimul/kalat-v7.7.html",
+            "path": "./parvisimul/kalat-v8.html",
             "thumb": "/assets/Fish-v7.png",
             "status": "WIP",
             "description": "fish simul v. sim speed control & fish 0 kiss.",
