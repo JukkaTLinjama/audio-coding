@@ -3,7 +3,7 @@
     "demos": [
         {
             "id": "fish school v8",
-            "title": "simulation of fish school v7.x",
+            "title": "simulation of fish school v8.x",
             "path": "./parvisimul/kalat-v8.html",
             "thumb": "/assets/Fish-v7.png",
             "status": "WIP",
