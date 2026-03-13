@@ -969,10 +969,6 @@ fish.add(modelFix);
       params.wSeparation = lerp(1.60, 0.28, tight); // low density => push apart
       params.separationRadius = lerp(2.60, 1.25, tight); // low density => bigger personal space
 
-      // EN: Store runtime multipliers so step() can weaken path/glue at low density.
-      params._tight = tight; // 0..1
-      params._pathAttractScale = lerp(0.03, 1.00, tight); // almost free when density=0
-      params._noiseScale = lerp(2.20, 1.00, tight);       // more wander when density=0
     }
 
     function applySoloIndependence() {
@@ -1947,7 +1943,6 @@ function step(dt) {
   renderer.domElement.addEventListener("pointerdown", (e) => {
     // EN: Allow canvas drag even when the debug HUD is visible.
     // EN: The HUD is now controlled only by the DEBUG toggle, not by canvas taps.
-    renderer.domElement._closeHudOnUp = false;
 
     dragging = true;
     lastX = e.clientX;
@@ -1957,7 +1952,7 @@ function step(dt) {
     renderer.domElement._downX = e.clientX;
     renderer.domElement._downY = e.clientY;
     renderer.domElement._moved = false;
-    renderer.domElement._downTime = performance.now();
+    //renderer.domElement._downTime = performance.now();
 
     renderer.domElement.setPointerCapture(e.pointerId);
   });
@@ -1980,8 +1975,6 @@ function step(dt) {
     });
 
   renderer.domElement.addEventListener("pointerup", () => {
-    // EN: Legacy HUD auto-close from canvas interaction is disabled.
-    renderer.domElement._closeHudOnUp = false;
 
       const wasDrag = renderer.domElement._moved;
       dragging = false;
@@ -1996,7 +1989,6 @@ function step(dt) {
 
     renderer.domElement.addEventListener("pointercancel", () => {
       dragging = false;
-      renderer.domElement._closeHudOnUp = false;
     });
 
 
