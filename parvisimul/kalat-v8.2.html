@@ -448,8 +448,6 @@ const fishBodies = [];
 const fishTails = [];
 const fishEyeBars = [];
 const fishMouths = [];
-  // EN: Debug arrow to visualize velocity direction for fish #0
-  let debugArrow = null;
 
   // EN: Debug helper for fish #0 local axes. Visibility is controlled by the global debug toggle.
     let fish0LocalAxes = null;
@@ -629,7 +627,7 @@ fish.add(modelFix);
       // EN: Extra lateral corridor correction during Path-B transfer.
       // EN: Keep this clearly lower than point pull to avoid hard sideways snapping.
       visitLatPullBoost: 4.2,
-
+      visitReactionLagScale: 0.15,  // EN: Shorter reaction lag during Path A -> B transfer.
       visitFlowBoost: 2.1,
      };
 
@@ -668,7 +666,6 @@ fish.add(modelFix);
     // (fast, stable, and good enough visually for N=30).
     let pathCurve = null;
     let pathSamplePts = [];     // Vector3[]
-    let pathSampleTans = [];    // Vector3[]
     let pathLine = null;        // THREE.Line
 
     // Leader point state (single target that moves along the curve)
@@ -685,7 +682,6 @@ fish.add(modelFix);
     // ---------- Secondary path (B) ----------
     let pathCurveB = null;
     let pathSamplePtsB = [];
-    let pathSampleTansB = [];
     let pathLineB = null;
     let pathLeaderUB = 0.0;
     let pathApproxLengthB = 1.0;
@@ -716,13 +712,12 @@ fish.add(modelFix);
       // Sample points + tangents for nearest-point lookup and for drawing the path line
       const S = Math.max(60, Math.floor(params.pathSamples || 200));
       pathSamplePts = new Array(S);
-      pathSampleTans = new Array(S);
 
       for (let i = 0; i < S; i++) {
         const u = i / S;
         pathSamplePts[i] = pathCurve.getPointAt(u);
-        pathSampleTans[i] = pathCurve.getTangentAt(u).normalize();
       }
+
       // Approximate curve length from samples (closed loop)
       // EN: Used to advance the leader at roughly constant world speed.
       pathApproxLength = 0;
@@ -785,12 +780,10 @@ fish.add(modelFix);
 
       const S = Math.max(60, Math.floor(params.pathSamplesB || 200));
       pathSamplePtsB = new Array(S);
-      pathSampleTansB = new Array(S);
 
       for (let i = 0; i < S; i++) {
         const u = i / S;
         pathSamplePtsB[i] = pathCurveB.getPointAt(u);
-        pathSampleTansB[i] = pathCurveB.getTangentAt(u).normalize();
       }
 
       // Approx length
@@ -1275,7 +1268,6 @@ fish.add(modelFix);
       basisUp: new THREE.Vector3(),
       bankQ: new THREE.Quaternion(),
       localForwardAxis: new THREE.Vector3(0, 0, 1), // EN: local +Z = forward (v5.9)
-      localUpAxis: new THREE.Vector3(0, 1, 0),      // EN: local +Y = up (v5.9)
       d: new THREE.Vector3(),
       sumPos: new THREE.Vector3(),
       sumVel: new THREE.Vector3(),
@@ -1286,17 +1278,10 @@ fish.add(modelFix);
       r1: new THREE.Vector3(),
       r2: new THREE.Vector3(),
       tangent: new THREE.Vector3(),
-      radial: new THREE.Vector3(),
       toPath: new THREE.Vector3(),
-      up: new THREE.Vector3(0, 1, 0),
       quat: new THREE.Quaternion(),
       m4: new THREE.Matrix4(),
-      s: new THREE.Vector3(1, 1, 1),
-      camPos: new THREE.Vector3(),
-      camDir: new THREE.Vector3(),
-      camRight: new THREE.Vector3(),
-      camUp: new THREE.Vector3(),
-      // Scratch vectors for acceleration decomposition
+           // Scratch vectors for acceleration decomposition
       a: new THREE.Vector3(),
       fwd: new THREE.Vector3(),
       right: new THREE.Vector3(),
@@ -1614,9 +1599,8 @@ function step(dt) {
           }
         }
         
-        // ---------- Focus command (fish #0) ----------
-
-// EN: Reaction lag: smooth desired velocity so fish don't turn in perfect sync.
+          // ---------- Path A -> B transfer smoothing (fish #0) ----------
+        // EN: Reaction lag: smooth desired velocity so fish don't turn in perfect sync.
         const tauBase = reactionTau[i];
         const tauThis = lerp(tauBase, tauBase * params.visitReactionLagScale, pathBlendThis);
           if (tauThis > 1e-5) {          // Exponential smoothing: alpha = 1 - exp(-dt/tau)
@@ -1625,13 +1609,11 @@ function step(dt) {
           tmp.desired.copy(desiredSm[i]);
         }
 
-        // Convert desired direction into target speed (cruise-like)
-        // EN: During focus, tmp.desired already encodes a desired velocity (including speed).
-          if (true) {            // EN: At low leader speed, do not force every fish to cruise at a fixed speed.
-            // EN: Let the summed steering magnitude stay smaller so the school can hover.
-            
+          // Convert desired direction into target speed (cruise-like)
+          // EN: tmp.desired already encodes a desired velocity from the A/B transfer logic.
+          // EN: At low leader speed, do not force every fish to cruise at a fixed speed.
+          {
             const maxSpeedThis = params.maxSpeed;
-
             const cruise = lerp(minSpeedThis, maxSpeedThis, leaderSpeed01);
 
             const desiredLen = tmp.desired.length();
@@ -1644,8 +1626,6 @@ function step(dt) {
 
               setMag(tmp.desired, targetMag);
             }
-          } else {
-            // EN: Focus: keep desired speed as computed (arrive/hold/release).
           }
 
         // EN: Global low-speed turn calming for ALL fish, except the focus test fish (#0 during focus).
@@ -1786,30 +1766,6 @@ function step(dt) {
         const fish = fishMeshes[i];
         fish.position.copy(p);
         fish.quaternion.copy(tmp.quat);
-
-        // EN: Determine which local axis is the model's "up" by checking alignment vs worldUp.
-        if (i === 0 && (performance.now() % 400 < 16)) {
-          const upX = new THREE.Vector3(1, 0, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
-          const upY = new THREE.Vector3(0, 1, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp); // EN: local +Y = up
-          const upZ = new THREE.Vector3(0, 0, 1).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
-         // console.log("dotUp X/Y/Z:", upX.toFixed(3), upY.toFixed(3), upZ.toFixed(3));
-        }
-        // EN: Measure actual "uprightness" of fish #0 (angle between its up axis and world up)
-        if (i === 0 && (performance.now() % 400 < 16)) {
-          const upWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(fish.quaternion); // EN: local +Y is up (v5.9)
-          const dotUp = clamp(upWorld.dot(tmp.worldUp), -1, 1);
-          const upAngleDeg = Math.acos(dotUp) * 57.3;
-          //console.log("upAngleDeg:", upAngleDeg.toFixed(1), "dirLen:", V[i].length().toFixed(3));
-        }
-
-        // EN: Update debug arrow to match fish #0 velocity direction
-        if (i === 0 && debugArrow) {
-          debugArrow.position.copy(p);
-          // EN: Arrow shows fish local +Z (forward) in world space
-          tmp.fwd.set(0, 0, 1);
-          tmp.fwd.applyQuaternion(fish.quaternion).normalize();
-          debugArrow.setDirection(tmp.fwd);
-        }
 
         // EN: Tail visuals are driven by signed acceleration, not just positive thrust.
         // EN: Positive forward accel stretches the tail; braking compresses it.
