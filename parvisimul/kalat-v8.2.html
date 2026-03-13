@@ -629,7 +629,7 @@ fish.add(modelFix);
       // EN: HUD auto-hide delay after last interaction.
       hudHideDelayMs: 1900,
 
-      // EN: Temporary boosted transfer of fish #0 from Path A to Path B.
+// EN: Path A -> Path B transfer tuning for fish #0.
       visitDurationSec: 15.0,
       visitIngressTau: 0.18,
       visitRelaxTau: 0.55,
@@ -968,17 +968,6 @@ fish.add(modelFix);
           }
         }
       }
-
-    function findNearestPathIndex(p) {
-      // Brute-force nearest sample (S ~ 240, N=30 => cheap).
-      let best = 0;
-      let bestD2 = Infinity;
-      for (let i = 0; i < pathSamplePts.length; i++) {
-        const d2 = pathSamplePts[i].distanceToSquared(p);
-        if (d2 < bestD2) { bestD2 = d2; best = i; }
-      }
-      return best;
-    }
 
     function samplePathAtU(u) {
       // Sample position + tangent from the polyline samples using linear interpolation.
@@ -1369,12 +1358,6 @@ fish.add(modelFix);
   
 
 function step(dt) {
-      // dt capped for stability (mobile frame drops)
-      //dt = Math.min(0.033, dt);
-        // EN: Test mode - do not clamp dt here.
-      // EN: This lets us observe where the simulation becomes unstable.
-      // EN: visit-state machine removed; disable stop easing for now
-       const stopEaseThis = 0.0;
 
       // EN: Smooth per-fish path-blend targets without any visit-specific phase machine.
       {
@@ -1399,10 +1382,6 @@ function step(dt) {
       // EN: targetSpeed slider controls params.pathLeaderSpeed (0..4).
       // EN: Stop-mode factors per leader (A and B). Used to calm fish when the active leader slows/stops.
       const lead01A = clamp(params.pathLeaderSpeed / 1.8, 0, 1);
-      const stopEaseA = (1 - lead01A) ** 2;
-
-      const lead01B = clamp(params.pathLeaderSpeedB / 0.52, 0, 1); // 0.52 = your current default B speed
-      const stopEaseB = (1 - lead01B) ** 2;
 
       if (pathLeaderMarker) pathLeaderMarker.position.copy(leaderPos);
       // EN: Spawn bubbles in bursts with random cooldown to avoid a continuous tube
@@ -1668,9 +1647,8 @@ function step(dt) {
         const noiseK = isSolo[i]
           ? params.noiseStrength * (1 + 1.6 * (1 - flock[i]))  // up to ~2.6x when flock≈0
           : params.noiseStrength;
-        // tmp.desired.addScaledVector(noise[i], noiseK);
-        tmp.desired.addScaledVector(noise[i], noiseK * (1 - 0.85 * stopEaseThis)); // reduce noise when leader slows down
 
+          tmp.desired.addScaledVector(noise[i], noiseK); // EN: visit stop easing removed in cleanup
         // Mild "glue" towards global center so the school doesn't split into multiple clusters
         if (globalCount > 0) {
           const toGlobal = globalCenter.clone().sub(p);
