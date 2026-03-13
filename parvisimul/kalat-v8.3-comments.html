@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v8.2</title>
+  <title>Fish School (Boids) – v8.3</title>
   <style>
     html,
     body {
@@ -231,7 +231,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v8.2 – path change</div>
+  <div id="versionBar">Fish School v8.3 – path change</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -1311,23 +1311,38 @@ fish.add(modelFix);
       if (Math.random() < 0.02) randomUnitVec3(noiseTarget[i]);
     }
   
+  function updatePathBlendState(dt) {
+    // EN: Smooth per-fish path-blend targets without any discrete visit phase machine.
+    const alphaBlend = 1 - Math.exp(-dt / Math.max(1e-6, pathBlendTau));
+
+    for (let i = 0; i < N; i++) {
+      pathBlend[i] += (pathBlendTarget[i] - pathBlend[i]) * alphaBlend;
+    }
+  }
 
 function step(dt) {
 
-      // EN: Smooth per-fish path-blend targets without any visit-specific phase machine.
-      {
-        const alphaBlend = 1 - Math.exp(-dt / Math.max(1e-6, pathBlendTau));
-        for (let i = 0; i < N; i++) {
-          pathBlend[i] += (pathBlendTarget[i] - pathBlend[i]) * alphaBlend;
-        }
-      }
+  // ============================================================
+  // STEP PIPELINE
+  // 1) Update continuous visit/path-blend state
+  // 2) Update leader state for Path A and Path B
+  // 3) Update shared school state
+  // 4) Run per-fish steering and dynamics
+  // ============================================================
 
-      // EN: Fish #0 continuous "visit" blend drives the Path B presentation.
-      // EN: 0 = Path B stays in its baseline state.
-      // EN: 1 = Path B is fully moved into its active near-camera visit position.
-      updatePathBFromBlend(pathBlend[0]);
+  // ------------------------------------------------------------
+  // 1) Continuous visit / Path B blend state
+  // ------------------------------------------------------------
+  updatePathBlendState(dt);
 
-      // Advance the global leader along the curve (once per step)
+  // ------------------------------------------------------------
+  // 2) Leader state update (Path A + Path B)
+  // ------------------------------------------------------------
+
+  // EN: Fish #0 continuous visit blend drives Path B presentation.
+  updatePathBFromBlend(pathBlend[0]);
+
+  // EN: Advance the main Path A leader once per simulation step.
       // EN: Persistent u parameter prevents snapping at self-intersections.
       const duLeader = (params.pathLeaderSpeed * dt) / Math.max(pathApproxLength, 1);
       pathLeaderU = (pathLeaderU + duLeader) % 1;
@@ -1363,7 +1378,12 @@ function step(dt) {
       // EN: Shift Path B leader closer to the front glass as interest grows.
       if (pathLeaderMarkerB) pathLeaderMarkerB.position.copy(leaderPosB);
 
-      const neighborR = params.neighborRadius;      // convert px-ish values to world-ish
+  // ------------------------------------------------------------
+  // 3) Shared school state
+  // ------------------------------------------------------------
+  // EN: Update flock smoothing, wander noise and school-wide center state
+  // EN: before evaluating individual fish steering.
+  const neighborR = params.neighborRadius;      // convert px-ish values to world-ish
       const separationR = params.separationRadius;
       // Blend flock factor smoothly (dt-stable exponential smoothing)
       const tau = 0.18;
@@ -1395,11 +1415,26 @@ function step(dt) {
           schoolToLeaderA.copy(leaderPos).sub(globalCenter);
           schoolToLeaderB.copy(leaderPosB).sub(globalCenter);
         }
-        for (let i = 0; i < N; i++) {
-          const p = P[i];
+  // ------------------------------------------------------------
+  // 4) Per-fish steering and dynamics
+  // ------------------------------------------------------------
+  // EN: For each fish:
+  // EN:   - evaluate boids and separation
+  // EN:   - evaluate active path / visit-transfer steering
+  // EN:   - smooth desired velocity
+  // EN:   - integrate motion
+  // EN:   - apply soft bounds
+  for (let i = 0; i < N; i++) {
+    // --------------------------------------------------
+    // 4A) Local neighborhood / boids inputs
+    // --------------------------------------------------
+    const p = P[i];
           const v = V[i];
 
-          const pathBlendThis = pathBlend[i];
+    // --------------------------------------------------
+    // 4B) Active path / visit-transfer tuning
+    // --------------------------------------------------
+    const pathBlendThis = pathBlend[i];
 
           // EN: Continuous visit/Path B transfer scaling.
           // EN: pathBlendThis = 0 -> normal Path A schooling behaviour.
@@ -1625,6 +1660,9 @@ function step(dt) {
         }
         
           // ---------- Path A -> B transfer smoothing (fish #0) ----------
+        // --------------------------------------------------
+        // 4C) Desired velocity smoothing and motion limits
+        // --------------------------------------------------
         // EN: Reaction lag: smooth desired velocity so fish don't turn in perfect sync.
         const tauBase = reactionTau[i];
         const tauThis = lerp(tauBase, tauBase * params.visitReactionLagScale, pathBlendThis);
@@ -1686,7 +1724,9 @@ function step(dt) {
 
         clampLen(tmp.steer, params.maxSteer);
 
-        // Integrate
+        // --------------------------------------------------
+        // 4D) Integrate motion
+        // --------------------------------------------------
         v.addScaledVector(tmp.steer, dt);
 
         // Clamp speed
@@ -1731,6 +1771,9 @@ function step(dt) {
 
         // Store v for next frame
         Vprev[i].copy(v);
+        // --------------------------------------------------
+        // 4E) Soft bounds
+        // --------------------------------------------------
         // Soft bounds (keep them near center, like "invisible aquarium")
         // This is intentionally gentle to keep things calm.
         const maxR = (params.pathRadius + params.pathJitter) * 2.1; // gentle spherical bound around the path
@@ -1751,6 +1794,13 @@ function step(dt) {
 
     // ---------- Render instanced fish ----------
       function renderMeshes(dt) {
+        // ============================================================
+        // RENDER PIPELINE
+        // EN: Convert simulated position/velocity state into fish mesh
+        // EN: transforms, stable orientation and tail-only visual response.
+        // EN: This function must stay visual-only and must not feed back
+        // EN: into steering or dynamics.
+        // ============================================================
           for (let i = 0; i < N; i++) {
         const p = P[i];
         const dir = V[i].clone().normalize();
