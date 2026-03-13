@@ -345,10 +345,6 @@
       return v;
     }
 
-    // EN: Reusable scratch objects for turn-rate limiting (avoid per-frame allocations).
-    const _rotAxis = new THREE.Vector3();
-    const _rotQuat = new THREE.Quaternion();
-
     // ---------- Scene ----------
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
@@ -441,8 +437,7 @@ const mouthMat = new THREE.MeshStandardMaterial({
 });
 
 const N = 30;
-const N_B = 0; // EN: Secondary school fish count (0 = path/leader only)
-    const COLOR_SCHOOL = new THREE.Color("#cfe9ff");
+  const COLOR_SCHOOL = new THREE.Color("#cfe9ff");
   // EN: Dark green for solo fish
   const COLOR_SOLO = new THREE.Color("#2c7a3f");
 
@@ -605,14 +600,10 @@ fish.add(modelFix);
 
       pathControlPointsB: 5,
       pathSamplesB: 200,
-      pathSpeedB: 1.25,          // EN: flow direction reference (if fish are added later)
-      pathAttractKB: 0.30,       // EN: (unused when N=0) pull strength toward B corridor
       pathLeaderSpeedB: 0.42,     // EN: world units / second along curve B
       pathLeaderUB: 0.35,
       showPathLeaderB: false,
       showPathB: true,
-      testFishUsePathB: false, // EN: if true, fish #0 follows Path B instead of Path A
-
 
       // EN: Average reaction lag (seconds). 0 = instant response.
       reactionLag: 0.18,
@@ -626,15 +617,8 @@ fish.add(modelFix);
       // Thickness in Z (school is a ribbon / tube)
       zWanderK: 0.25, // gentle pull to z ~ 0
 
-      // EN: HUD auto-hide delay after last interaction.
-      hudHideDelayMs: 1900,
-
 // EN: Path A -> Path B transfer tuning for fish #0.
-      visitDurationSec: 15.0,
-      visitIngressTau: 0.18,
-      visitRelaxTau: 0.55,
-      visitEntrySpeedBoost: 2.65, // EN: Extra speed boost while fish #0 is still far from the visit anchor.
-      visitEntryDist: 8.0,        // EN: Distance range where the entry boost is active.
+      //visitDurationSec: 15.0,
       visitBoidsScale: 0.18,
       visitSeparationScale: 0.35,
 
@@ -647,39 +631,7 @@ fish.add(modelFix);
       visitLatPullBoost: 4.2,
 
       visitFlowBoost: 2.1,
-      visitMaxSpeedBoost: 11.9,
-      visitReactionLagScale: 0.15,
-      visitArriveDist: 1.4,
-      visitExtendSec: 4.0, // EN: extra visit time added by repeated clicks
-      visitCameraDistFar: 14.0,
-      visitCameraDistNear: 5.8,   // EN: keep high-interest visits farther from the camera
-
-      visitAreaWidthBase: 1.35,   // EN: slightly narrower front-glass area
-      visitAreaHeightBase: 1.65,  // EN: clearly shorter portrait-safe visit area
-      visitAreaCenterYPortrait: 0.04,  // EN: keep the visit area closer to screen center in portrait
-      visitAreaCenterYLandscape: 0.00,
-
-      // EN: Visit phase durations.
-      visitApproachSec: 1.8,
-      visitHoldSec: 6.0,
-      visitReturnSec: 2.4,
-
-      // EN: Trick motion amplitudes for approach/return.
-      visitApproachArc: 2.2,
-      visitApproachSpiral: 0.6,
-      visitReturnArc: 2.6,
-      visitReturnSpiral: 0.8,
-      visitTrickTurns: 0.9,
-
-      // EN: Roll amount during trick motion.
-      visitTrickRollMax: 0.6,
-      visitInterestMax: 5,
-      // EN: Distance-based slowdown for fish #0 near the front-glass visit target.
-      visitSlowRadius: 4.0,        // EN: start slowing down well before the anchor
-      visitNearSpeedFactor: 0.26,  // EN: very low max-speed fraction right near the anchor
-      visitFarSpeedFactor: 1.35,   // EN: allowed max-speed fraction when still far away
-      visitSpeedPow: 0.8,          // EN: >1 makes the slowdown stronger near the target
-    };
+     };
 
     // ---------- Interaction / Command state ----------
 
@@ -1402,8 +1354,7 @@ function step(dt) {
       // EN: Move the fixed Path B shape toward/away from the camera without rebuilding it.
       leaderPosB.z += (params.pathCenterZB - params.pathBBaseCenterZ);
 
-  // EN: Path B leader stays as sampled; camera-relative visit anchor handles closeness.
-
+  // EN: Path B leader stays on its sampled path; only the Z offset is updated.
       // EN: Shift Path B leader closer to the front glass as interest grows.
       if (pathLeaderMarkerB) pathLeaderMarkerB.position.copy(leaderPosB);
 
@@ -1447,8 +1398,8 @@ function step(dt) {
           let boidsScaleThis = lerp(1.0, params.visitBoidsScale, pathBlendThis);
           let sepScaleThis = lerp(1.0, params.visitSeparationScale, pathBlendThis);
 
-          // EN: Temporary proof mode: when fish #0 transitions to Path B, reduce boid influence further
-          // EN: so we can verify that path-following itself works.
+          // EN: During Path A -> B transfer for fish #0, temporarily reduce boid influence
+          // EN: so the path-following contribution is easier to verify.
           if (i === 0) {
             boidsScaleThis *= lerp(1.0, 0.08, pathBlendThis);
             sepScaleThis *= lerp(1.0, 0.18, pathBlendThis);
