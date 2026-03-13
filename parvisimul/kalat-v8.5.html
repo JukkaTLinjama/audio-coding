@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v8.4</title>
+  <title>Fish School (Boids) – v8.5</title>
   <style>
     html,
     body {
@@ -231,7 +231,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v8.4 – path change</div>
+  <div id="versionBar">Fish School v8.5 – path change testing</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -472,12 +472,6 @@ eyeBar.userData.baseScale = eyeBar.scale.clone();
     mouth.position.set(0.0, -0.02, 0.55);
     mouth.userData.baseScale = new THREE.Vector3(0.50, 0.93, 1.0);
     mouth.scale.copy(mouth.userData.baseScale);
-    // EN: Disable frustum culling for fish meshes (diagnostic fix for sudden disappearance)
-    body.frustumCulled = false;
-    tail.frustumCulled = false;
-    eyeBar.frustumCulled = false;
-    mouth.frustumCulled = false;
-
 
     const fish = new THREE.Group();
 
@@ -582,10 +576,11 @@ fish.add(modelFix);
       showPathLeader: false,  // draw a small marker for debugging
 
       // EN: Global calm turning at low speed (applies to all fish except focus test fish).
-      slowTurnEnabled: true,
+      slowTurnEnabled: false,
       slowTurnRateLow: 1.55,       // rad/s when slow (try 0.25..1.0)
       slowTurnRateHigh: 3.40,      // rad/s when fast (try 1.5..4.0)
-      slowTurnSpeedRef: 0.45,      // EN: Apply calm-turn limiting only at genuinely very low speed.      slowTurnVerticalDamp: 0.35,  // 0..1, reduces pitch snap ("floating")
+      slowTurnSpeedRef: 1.0,      // speed where turning is mostly normal
+      slowTurnVerticalDamp: 0.35,  // 0..1, reduces pitch snap ("floating")
       targetPullK: 1.45, // EN: direct pull toward active leader point (added to pathAttractK), tune 0..2 for stronger/weaker target focus
 
       // ---------- Secondary school/path (B) ----------
@@ -611,7 +606,7 @@ fish.add(modelFix);
       pathSamplesB: 200,
       pathLeaderSpeedB: 0.42,     // EN: world units / second along curve B
       pathLeaderUB: 0.35,
-      showPathLeaderB: false,
+      showPathLeaderB: true,
       showPathB: true,
 
       // EN: Average reaction lag (seconds). 0 = instant response.
@@ -854,16 +849,10 @@ fish.add(modelFix);
 
     const nextCenterZ = lerp(params.pathBBaseCenterZ, params.pathBNearCenterZ, b);
     const nextLeaderSpeed = lerp(params.pathBBaseLeaderSpeed, params.pathBNearLeaderSpeed, b);
-    const zOffset = nextCenterZ - params.pathBBaseCenterZ;
 
     // EN: Keep the original random Path B shape; only move it in Z and adjust leader speed.
     params.pathCenterZB = nextCenterZ;
     params.pathLeaderSpeedB = nextLeaderSpeed;
-
-    // EN: Move the rendered Path B line so it matches the actual shifted steering path.
-    if (pathLineB) {
-      pathLineB.position.z = zOffset;
-    }
   }
     
     function samplePathAtUB(u) {
@@ -1071,7 +1060,7 @@ fish.add(modelFix);
         const mB = new THREE.MeshBasicMaterial({
           color: 0xffb36b,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.35,
           depthTest: false,
           depthWrite: false,
         });
@@ -1182,10 +1171,10 @@ fish.add(modelFix);
       // EN: Main slider controls Path A speed directly.
       params.pathLeaderSpeed = v;
 
-      // EN: Keep Path B speed family anchored to the same overall speed scale.
+      // EN: Diagnostic: keep Path B on the same zero-capable speed scale as Path A.
       params.pathBBaseLeaderSpeed = v;
-      params.pathBNearLeaderSpeed = v * 0.68;
-        // EN: Let Path B near-speed go to zero when target speed is zero.      
+      params.pathBNearLeaderSpeed = v;
+
     });
     bindSlider("targetPull", "targetPullVal", (v) => {
       params.targetPullK = v;
@@ -1323,60 +1312,14 @@ fish.add(modelFix);
       if (Math.random() < 0.02) randomUnitVec3(noiseTarget[i]);
     }
   
+  function updatePathBlendState(dt) {
+    // EN: Smooth per-fish path-blend targets without any discrete visit phase machine.
+    const alphaBlend = 1 - Math.exp(-dt / Math.max(1e-6, pathBlendTau));
 
-
-function updateLeaderState(dt) {
-  // ------------------------------------------------------------
-  // 2) Leader state update (Path A + Path B)
-  // ------------------------------------------------------------
-
-  // EN: Fish #0 continuous visit blend drives Path B presentation.
-  updatePathBFromBlend(pathBlend[0]);
-
-  // EN: Advance the main Path A leader once per simulation step.
-  // EN: Persistent u parameter prevents snapping at self-intersections.
-  const duLeader = (params.pathLeaderSpeed * dt) / Math.max(pathApproxLength, 1);
-  pathLeaderU = (pathLeaderU + duLeader) % 1;
-
-  const leaderSample = samplePathAtU(pathLeaderU);
-  const leaderPos = leaderSample.pos;
-  const leaderTan = leaderSample.tan;
-
-  // EN: Stop-mode factors per leader (A and B). Used to calm fish when the active leader slows/stops.
-  const lead01A = clamp(params.pathLeaderSpeed / 1.8, 0, 1);
-
-  if (pathLeaderMarker) pathLeaderMarker.position.copy(leaderPos);
-
-  // EN: Spawn bubbles in bursts with random cooldown to avoid a continuous tube.
-  bubbleCooldownA -= dt;
-  if (bubbleCooldownA <= 0) {
-    spawnBubbles(leaderPos);
-    bubbleCooldownA = lerp(0.18, 0.65, Math.random()); // seconds between bursts
+    for (let i = 0; i < N; i++) {
+      pathBlend[i] += (pathBlendTarget[i] - pathBlend[i]) * alphaBlend;
+    }
   }
-
-  // EN: Advance secondary leader (B) even if School B has N=0.
-  const duLeaderB = (params.pathLeaderSpeedB * dt) / Math.max(pathApproxLengthB, 1);
-  pathLeaderUB = (pathLeaderUB + duLeaderB) % 1;
-
-  const leaderSampleB = samplePathAtUB(pathLeaderUB);
-  const leaderPosB = leaderSampleB.pos.clone();
-  const leaderTanB = leaderSampleB.tan;
-
-  // EN: Move the fixed Path B shape toward/away from the camera without rebuilding it.
-  leaderPosB.z += (params.pathCenterZB - params.pathBBaseCenterZ);
-
-  // EN: Path B leader stays on its sampled path; only the Z offset is updated.
-  // EN: Shift Path B leader closer to the front glass as interest grows.
-  if (pathLeaderMarkerB) pathLeaderMarkerB.position.copy(leaderPosB);
-
-  return {
-    leaderPos,
-    leaderTan,
-    leaderPosB,
-    leaderTanB,
-    lead01A
-  };
-}
 
 function step(dt) {
 
@@ -1391,15 +1334,47 @@ function step(dt) {
   // ------------------------------------------------------------
   // 1) Continuous visit / Path B blend state
   // ------------------------------------------------------------
-  // EN: Smooth per-fish path-blend targets without any discrete visit phase machine.
-  {
-    const alphaBlend = 1 - Math.exp(-dt / Math.max(1e-6, pathBlendTau));
-    for (let i = 0; i < N; i++) {
-      pathBlend[i] += (pathBlendTarget[i] - pathBlend[i]) * alphaBlend;
-    }
-  }
-  // 2) Leader state update moved to helper function
-    const { leaderPos, leaderTan, leaderPosB, leaderTanB, lead01A } = updateLeaderState(dt);
+  updatePathBlendState(dt);
+
+  // ------------------------------------------------------------
+  // 2) Leader state update (Path A + Path B)
+  // ------------------------------------------------------------
+
+  // EN: Fish #0 continuous visit blend drives Path B presentation.
+  updatePathBFromBlend(pathBlend[0]);
+
+  // EN: Advance the main Path A leader once per simulation step.
+      // EN: Persistent u parameter prevents snapping at self-intersections.
+      const duLeader = (params.pathLeaderSpeed * dt) / Math.max(pathApproxLength, 1);
+      pathLeaderU = (pathLeaderU + duLeader) % 1;
+
+      const leaderSample = samplePathAtU(pathLeaderU);
+      const leaderPos = leaderSample.pos;
+      const leaderTan = leaderSample.tan;
+      // EN: Stop-mode factors when the leader slows down.
+      // EN: targetSpeed slider controls params.pathLeaderSpeed (0..4).
+      // EN: Stop-mode factors per leader (A and B). Used to calm fish when the active leader slows/stops.
+      const lead01A = clamp(params.pathLeaderSpeed / 1.8, 0, 1);
+
+      if (pathLeaderMarker) pathLeaderMarker.position.copy(leaderPos);
+      // EN: Spawn bubbles in bursts with random cooldown to avoid a continuous tube
+      bubbleCooldownA -= dt;
+      if (bubbleCooldownA <= 0) {
+        spawnBubbles(leaderPos);
+        bubbleCooldownA = lerp(0.18, 0.65, Math.random()); // seconds between bursts
+      }
+
+      // Advance secondary leader (B) even if School B has N=0
+      const duLeaderB = (params.pathLeaderSpeedB * dt) / Math.max(pathApproxLengthB, 1);
+      pathLeaderUB = (pathLeaderUB + duLeaderB) % 1;
+
+ const leaderSampleB = samplePathAtUB(pathLeaderUB);
+  const leaderPosB = leaderSampleB.pos.clone();
+  const leaderTanB = leaderSampleB.tan;
+
+  // EN: Path B points already include their world-space center offset.
+  // EN: Do not add another runtime Z shift here, or the leader no longer matches the rendered path.
+  if (pathLeaderMarkerB) pathLeaderMarkerB.position.copy(leaderPosB);
 
   // ------------------------------------------------------------
   // 3) Shared school state
@@ -1525,45 +1500,44 @@ function step(dt) {
           // EN: During early transfer blend between Path A and Path B.
           // EN: After ~35% transfer commit directly to Path B leader.
           // EN: This prevents fish from steering toward the midpoint between paths.
+        let useLeaderPos;
+        let useLeaderTan;
+        let useLeaderSpeed;
 
-          let useLeaderPos;
-          let useLeaderTan;
-          let useLeaderSpeed;
+        if (pathBlendThis < 0.35) {
 
-          if (pathBlendThis < 0.35) {
+          useLeaderPos = leaderPos.clone().lerp(leaderPosB, pathBlendThis);
 
-            useLeaderPos = leaderPos.clone().lerp(leaderPosB, pathBlendThis);
+          useLeaderTan = tmp.tangent
+            .copy(leaderTan)
+            .lerp(leaderTanB, pathBlendThis);
 
-            useLeaderTan = tmp.tangent
-              .copy(leaderTan)
-              .lerp(leaderTanB, pathBlendThis);
-
-            if (useLeaderTan.lengthSq() < 1e-8) {
-              useLeaderTan.copy(leaderTan);
-            } else {
-              useLeaderTan.normalize();
-            }
-
-            // EN: Blend active leader speed only during the early transfer phase.
-            useLeaderSpeed = lerp(params.pathLeaderSpeed, params.pathLeaderSpeedB, pathBlendThis);
-
+          if (useLeaderTan.lengthSq() < 1e-8) {
+            useLeaderTan.copy(leaderTan);
           } else {
-
-            // EN: Commit directly to Path B once transfer is clearly underway.
-            useLeaderPos = leaderPosB.clone();
-            useLeaderTan = tmp.tangent.copy(leaderTanB).normalize();
-            useLeaderSpeed = params.pathLeaderSpeedB;
-
+            useLeaderTan.normalize();
           }
+
+          // EN: Diagnostic test: use the same leader speed on both Path A and Path B.
+          // EN: This isolates target-speed behavior from Path-B-specific speed tuning.
+          useLeaderSpeed = params.pathLeaderSpeed;
+
+        } else {
+
+          // EN: Commit directly to Path B geometry, but keep Path A speed for diagnosis.
+          useLeaderPos = leaderPosB.clone();
+          useLeaderTan = tmp.tangent.copy(leaderTanB).normalize();
+          useLeaderSpeed = params.pathLeaderSpeed;
+
+        }
 
           // EN: Normalized leader speed 0..1 for low-speed behavior blending.
           const leaderSpeed01 = clamp(useLeaderSpeed / 1.8, 0, 1);
 
           // EN: Transition from path streaming to local formation holding.
-          const flowScaleThis = lerp(0.18, 1.00, leaderSpeed01);
-          const minSpeedThis = lerp(0.00, params.minSpeed, leaderSpeed01);
-      // EN: Allow true near-stop behavior when leader speed goes to zero.          // EN: Keep a meaningful floor speed even when leader speed is low,
-          // EN: so fish can still turn and re-capture the path.
+          // EN: Keep more forward path flow at low leader speed so fish do not lose corridor guidance.
+          const flowScaleThis = lerp(0.42, 1.00, leaderSpeed01);          
+          const minSpeedThis = lerp(0.08, params.minSpeed, leaderSpeed01);
 
           // EN: Base direct pull toward the active leader point.
           // EN: Stronger at low leader speed, weaker at higher leader speed.
@@ -1571,17 +1545,10 @@ function step(dt) {
 
           // EN: Split direct target pull from lateral corridor pull.
           // EN: This makes Path-B transfer more decisive without over-correcting sideways.
-          let pointPullGain = lerp(1.0, params.visitPointPullBoost, pathBlendThis);
-          let latGain = lerp(1.0, params.visitLatPullBoost, pathBlendThis);
-          let flowGain = lerp(1.0, params.visitFlowBoost, pathBlendThis);
+          const pointPullGain = lerp(1.0, params.visitPointPullBoost, pathBlendThis);
+          const latGain = lerp(1.0, params.visitLatPullBoost, pathBlendThis);
+          const flowGain = lerp(1.0, params.visitFlowBoost, pathBlendThis);
 
-          // EN: Diagnostic Path B mode for fish #0:
-          // EN: prioritize direct leader-point chasing over corridor/flow following.
-          if (i === 0 && pathBlendThis > 0.5) {
-            pointPullGain *= 2.8;
-            latGain *= 0.22;
-            flowGain *= 0.12;
-          }
           tmp.toPath.copy(useLeaderPos).sub(p);
           const arriveDist = tmp.toPath.length();
           const arrive01 = clamp(arriveDist / 6.0, 0, 1); // EN: 0 near target, 1 far away
@@ -1612,12 +1579,9 @@ function step(dt) {
         // kLatGain tunes how aggressively the school returns to the path corridor.
           const kLatGain = 1.8;
 
-          // EN: At very low leader speed, reduce corridor-style lateral correction.
-          // EN: This tests whether slow-speed spreading is caused by fish individually
-          // EN: trying to correct sideways path error instead of holding formation.
-          const latFollowK = lerp(0.20, 0.95, leaderSpeed01);
-          // EN: Preserve path capture at low speed, but avoid over-constraining near full stop.              // EN: Keep corridor return almost independent from leader speed.
-          // EN: Target speed should control path progress, not disable path capture.
+        // EN: Keep stronger lateral corridor correction even at low leader speed.
+        // EN: Fish should still return toward the path instead of drifting free.
+        const latFollowK = lerp(0.45, 1.00, leaderSpeed01);
 
           const latWeight =
             attractK *
@@ -1627,28 +1591,28 @@ function step(dt) {
 
           tmp.desired.addScaledVector(tmp.r1, latWeight * latGain);
 
-        // EN: Gate forward flow by lateral error so fish don't "lock" into an offset orbit.
-        const gate = 1 / (1 + 1.9 * latDist); // latDist=0 => 1, latDist large => smaller
-       
+        // EN: Reduce forward-flow suppression from lateral offset.
+        // EN: Fish may be off the corridor briefly, but should still keep moving along the path.
+        const gate = 1 / (1 + 0.35 * latDist);
+
         // EN: Forward path flow must follow the ACTIVE leader speed.
         // EN: Otherwise the school keeps trying to cruise fast while the leader crawls.
         tmp.desired.addScaledVector(useLeaderTan, useLeaderSpeed * gate * flowScaleThis * flowGain);
         // EN: At very low leader speed, the flock needs a shared "school center follows leader"
         // EN: term, not only per-fish chasing of the leader point.
         if (!isSolo[i] && globalCount > 0) {
-          // EN: Diagnostic test: do not apply shared school-center translation
-          // EN: to fish #0 while it is in Path B probe mode.
-          if (!(i === 0 && pathBlendThis > 0.5)) {
-            const schoolToLeader = tmp.r0
-              .copy(schoolToLeaderA)
-              .lerp(schoolToLeaderB, pathBlendThis);
-            const schoolDist = schoolToLeader.length();
+          const schoolToLeader = tmp.r0
+            .copy(schoolToLeaderA)
+            .lerp(schoolToLeaderB, pathBlendThis);
+          const schoolDist = schoolToLeader.length();
 
-            if (schoolDist > 1e-6) {
-              tmp.r2.copy(schoolToLeader).multiplyScalar(1 / schoolDist);
-              const centerFollowK = lerp(1.10, 0.00, leaderSpeed01);
-              tmp.desired.addScaledVector(tmp.r2, centerFollowK);
-            }
+          if (schoolDist > 1e-6) {
+            tmp.r2.copy(schoolToLeader).multiplyScalar(1 / schoolDist);
+
+            // EN: Strong when leader is slow, fades out when leader speed increases.
+            const centerFollowK = lerp(1.10, 0.00, leaderSpeed01);
+
+            tmp.desired.addScaledVector(tmp.r2, centerFollowK);
           }
         }
         // EN: Stronger flow boost when the fish is more independent (low flock[i]).
@@ -1717,9 +1681,8 @@ function step(dt) {
 
             const desiredLen = tmp.desired.length();
             if (desiredLen > 1e-8) {
-              const normalizeK = lerp(0.08, 0.92, leaderSpeed01);
-              // EN: Keep strong steering authority at normal speeds,
-              // EN: but avoid forced cruise normalization near zero leader speed.
+              const normalizeK = lerp(0.18, 1.00, leaderSpeed01);
+
               // EN: Blend between keeping natural summed magnitude (slow leader)
               // EN: and full cruise normalization (fast leader).
               const targetMag = lerp(Math.min(desiredLen, cruise), cruise, normalizeK);
@@ -1737,7 +1700,10 @@ function step(dt) {
           const speedNow = v.length();
 
           // EN: Only apply calm-turn logic when the fish is actually moving slowly.
-          if (speedNow < params.slowTurnSpeedRef) {
+          // EN: Diagnostic: temporarily disable low-speed calm-turn filtering.
+          // EN: Test whether this turn limiter is what lets fish drift away at low target speed.
+          if (false && speedNow < params.slowTurnSpeedRef) {
+
             const desiredSpeed = tmp.desired.length();
 
             const k = clamp(speedNow / Math.max(1e-6, params.slowTurnSpeedRef), 0, 1);
@@ -1756,16 +1722,10 @@ function step(dt) {
         }
 
       // Steering = desiredVel - currentVel
-          tmp.steer.copy(tmp.desired).sub(v);
+        tmp.steer.copy(tmp.desired).sub(v);
+        // EN: Turn-rate limit for Path B test fish even in normal mode (prevents "twitch" on tight curves).
 
-          // EN: Allow the Path B probe fish to turn more decisively.
-          const maxSteerThis =
-            (i === 0 && pathBlendThis > 0.5)
-              ? params.maxSteer * 2.2
-              : params.maxSteer;
-
-          clampLen(tmp.steer, maxSteerThis);
-        
+        clampLen(tmp.steer, params.maxSteer);
 
         // --------------------------------------------------
         // 4D) Integrate motion
@@ -1823,9 +1783,10 @@ function step(dt) {
         const r3 = p.clone().sub(params.center);
         const r3Len = r3.length();
 
-        const boundK = lerp(0.035, 0.12, 1.0 - pathBlendThis);
-        // EN: Keep a small safety bound also in full Path B mode.
-        // EN: This prevents the probe fish from drifting out of view.
+          // EN: Fade the origin-centered soft bound back in gradually for fish #0
+          // EN: after the front-glass visit. This avoids a delayed snap when blend
+          // EN: finally drops below a hard threshold.
+          const boundK = 0.12 * (1.0 - pathBlendThis);
 
           if (r3Len > maxR && boundK > 1e-5) {
             r3.multiplyScalar(1 / (r3Len + 1e-6));
@@ -2100,13 +2061,10 @@ function step(dt) {
       const wasDrag = renderer.domElement._moved;
       dragging = false;
 
-      // EN: A short tap/click toggles fish #0 instantly between Path A and Path B.
-      // EN: Update both target and current blend so the transfer jumps immediately.
+      // EN: A short tap/click toggles fish #0 between Path A and Path B influence.
       if (!wasDrag) {
         if (N > 0) {
-          const nextBlend = pathBlendTarget[0] > 0.5 ? 0.0 : 1.0;
-          pathBlendTarget[0] = nextBlend;
-          pathBlend[0] = nextBlend;
+          pathBlendTarget[0] = pathBlendTarget[0] > 0.5 ? 0.0 : 1.0;
         }
       }
     });
