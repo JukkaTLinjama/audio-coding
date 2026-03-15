@@ -3,8 +3,8 @@
     "demos": [
         {
             "id": "fish school v8",
-            "title": "simulation of fish school v8.x",
-            "path": "./parvisimul/kalat-v8.5.html",
+            "title": "simulation of fish school v8.6",
+            "path": "./parvisimul/kalat-v8.6.html",
             "thumb": "/assets/Fish-v7.png",
             "status": "WIP",
             "description": "fish simul v. sim speed control & fish 0 kiss.",
