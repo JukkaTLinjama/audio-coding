@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v7.1</title>
+  <title>Fish School (Boids) – v7.9</title>
   <style>
     html,
     body {
@@ -107,6 +107,7 @@
       
       z-index: 10001;
     }
+
       #hudToggle:active {
         opacity: 0.5;
       }
@@ -122,6 +123,10 @@
         #hud button { padding: 8px 10px; font-size: 12px; }
         #hudToggle { font-size: 9.5px; opacity: 0.50; }
       }
+    /* EN: Force-hide HUD in debug-off mode also in landscape, where media query otherwise keeps it visible. */
+    #hud.debug-hidden {
+      display: none !important;
+    }
 
       /* ---------- Slider: neutral gray style ---------- */
 
@@ -226,7 +231,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v7.1 – sim time control</div>
+  <div id="versionBar">Fish School v7.9 – sim time control + kiss</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -290,7 +295,22 @@
     </div>
 
   </div>
-    <div id="hudToggle"> </div>
+  <div id="hudToggle"> </div>
+
+  <button id="debugToggle" style="
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 10002;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: rgba(0,0,0,0.45);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+  ">
+    DEBUG
+  </button>
 
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
@@ -298,6 +318,11 @@
     // ---------- Utilities ----------
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
     const lerp = (a, b, t) => a + (b - a) * t;
+
+    function smooth01(x) {
+      x = clamp(x, 0, 1);
+      return x * x * (3 - 2 * x);
+    }
 
     function randomUnitVec3(out) {
       // Random direction on sphere
@@ -377,9 +402,11 @@
     lightB.position.set(8, 18, 10);
     scene.add(lightB);
 
-    // EN: World coordinate axes at origin (X=red, Y=green, Z=blue)
-      const worldAxes = new THREE.AxesHelper(4);
-      scene.add(worldAxes);
+  // EN: World coordinate axes at origin (X=red, Y=green, Z=blue).
+  // EN: Visibility is controlled by the global debug toggle.
+  const worldAxes = new THREE.AxesHelper(4);
+  worldAxes.visible = false;
+  scene.add(worldAxes);
 
 // Moving point lights for "living gloss" (no shadows)
 const keyLight = new THREE.PointLight(0xffffff, 1.1, 80);
@@ -457,6 +484,9 @@ const fishMouths = [];
   // EN: Debug arrow to visualize velocity direction for fish #0
   let debugArrow = null;
 
+  // EN: Debug helper for fish #0 local axes. Visibility is controlled by the global debug toggle.
+    let fish0LocalAxes = null;
+
   for (let i = 0; i < N; i++) {
     const body = new THREE.Mesh(bodyGeom, bodyMat.clone());
     const tail = new THREE.Mesh(tailGeom, tailMat.clone());
@@ -492,9 +522,10 @@ fish.add(modelFix);
     modelFix.add(mouth);
 
     if (i === 0) {
-      // EN: DEBUG: show LOCAL axes after modelFix so we see the sim-aligned model axes.
-      const localAxes = new THREE.AxesHelper(1.6);
-      modelFix.add(localAxes);
+      // EN: Debug helper for fish #0 local axes after modelFix.
+      fish0LocalAxes = new THREE.AxesHelper(1.6);
+      fish0LocalAxes.visible = false;
+      modelFix.add(fish0LocalAxes);
     }
 
     scene.add(fish);
@@ -517,6 +548,8 @@ fish.add(modelFix);
     const Vprev = Array.from({ length: N }, () => new THREE.Vector3());
     const aForwardSm = new Float32Array(N); // signed forward acceleration (smoothed)
     const aLateralSm = new Float32Array(N); // signed lateral acceleration (smoothed)
+    const tailForwardSm = new Float32Array(N); // EN: visual-only smoothed signed forward tail response
+    const tailLateralSm = new Float32Array(N); // EN: visual-only smoothed signed lateral tail response
     const noise = Array.from({ length: N }, () => new THREE.Vector3());
     const noiseTarget = Array.from({ length: N }, () => new THREE.Vector3());
     // EN: Per-fish steering lag (reaction time). We smooth desired velocity to avoid synchronized turns.
@@ -619,6 +652,8 @@ fish.add(modelFix);
       visitDurationSec: 15.0,
       visitIngressTau: 0.18,
       visitRelaxTau: 0.55,
+      visitEntrySpeedBoost: 2.65, // EN: Extra speed boost while fish #0 is still far from the visit anchor.
+      visitEntryDist: 8.0,        // EN: Distance range where the entry boost is active.
       visitBoidsScale: 0.18,
       visitSeparationScale: 0.35,
       visitPathPullBoost: 13.2,
@@ -626,14 +661,50 @@ fish.add(modelFix);
       visitMaxSpeedBoost: 11.9,
       visitReactionLagScale: 0.15,
       visitArriveDist: 1.4,
+      visitExtendSec: 4.0, // EN: extra visit time added by repeated clicks
+      visitCameraDistFar: 14.0,
+      visitCameraDistNear: 5.8,   // EN: keep high-interest visits farther from the camera
+
+      visitAreaWidthBase: 1.35,   // EN: slightly narrower front-glass area
+      visitAreaHeightBase: 1.65,  // EN: clearly shorter portrait-safe visit area
+      visitAreaCenterYPortrait: 0.04,  // EN: keep the visit area closer to screen center in portrait
+      visitAreaCenterYLandscape: 0.00,
+
+      // EN: Visit phase durations.
+      visitApproachSec: 1.8,
+      visitHoldSec: 6.0,
+      visitReturnSec: 2.4,
+
+      // EN: Trick motion amplitudes for approach/return.
+      visitApproachArc: 2.2,
+      visitApproachSpiral: 0.6,
+      visitReturnArc: 2.6,
+      visitReturnSpiral: 0.8,
+      visitTrickTurns: 0.9,
+
+      // EN: Roll amount during trick motion.
+      visitTrickRollMax: 0.6,
+      visitInterestMax: 5,
+      // EN: Distance-based slowdown for fish #0 near the front-glass visit target.
+      visitSlowRadius: 4.0,        // EN: start slowing down well before the anchor
+      visitNearSpeedFactor: 0.26,  // EN: very low max-speed fraction right near the anchor
+      visitFarSpeedFactor: 1.35,   // EN: allowed max-speed fraction when still far away
+      visitSpeedPow: 0.8,          // EN: >1 makes the slowdown stronger near the target
     };
 
     // ---------- Interaction / Command state ----------
 
     const visitState = {
-      active: false,
-      timeLeft: 0,
-      ingressAlpha: 0,
+      phase: "idle",       // EN: "idle" | "approach" | "hold" | "return"
+      phaseTime: 0,        // EN: Time elapsed inside current phase.
+      blend: 0,            // EN: Global visit influence blend for steering/limits.
+      returnStart: new THREE.Vector3(), // EN: World-space release point at start of return.
+    };
+
+    // EN: Repeated-click interaction state for fish #0.
+    const visitorState = {
+      interest: 0,
+      lastClickMs: 0,
     };
 
     // EN: Runtime simulation speed multiplier.
@@ -647,12 +718,12 @@ fish.add(modelFix);
     const simFixedDt = 1 / 60;
     const maxSimStepsPerFrame = 240;
 
-    // EN: Throttle status text updates to avoid DOM churn.
-    //let simStatusLastUiMs = 0;
-
     // EN: Throttle status text updates to twice per second.
     let simStatusLastUiMs = 0;
 
+    // EN: Global debug state must exist before any camera/HUD update calls.
+    // EN: updateCameraForHud() is called during initial camera setup.
+    let debugEnabled = false;
 
     // EN: Camera setup must happen after params initialization.
       camera.position.set(0, 0, params.baseCamZ);
@@ -687,6 +758,8 @@ fish.add(modelFix);
     let pathLeaderUB = 0.0;
     let pathApproxLengthB = 1.0;
     let pathLeaderMarkerB = null;
+    let glassTargetMarker = null;
+    let glassPlaneDebug = null;
 
     function buildRandomClosedCurve() {
       const pts = [];
@@ -749,7 +822,8 @@ fish.add(modelFix);
 
       pathLine = new THREE.Line(geom, mat);
       pathLine.frustumCulled = false;
-      pathLine.visible = false;   // hide debug path at startup
+      // EN: Path visibility follows the global debug state.
+      pathLine.visible = debugEnabled;
       scene.add(pathLine);
       pathLine.renderOrder = 9999;
     }
@@ -817,9 +891,11 @@ fish.add(modelFix);
 
         pathLineB = new THREE.Line(geom, mat);
         pathLineB.frustumCulled = false;
-        pathLineB.visible = false;  // hide debug path at startup
+        // EN: Path B visibility follows the global debug state.
+        pathLineB.visible = debugEnabled;
         scene.add(pathLineB);
-        pathLineB.renderOrder = 9998;      }
+        pathLineB.renderOrder = 9998;
+      }
     }
 
     function samplePathAtUB(u) {
@@ -885,11 +961,8 @@ fish.add(modelFix);
           b.userData.age += dt;
 
           // Rise upward
-          b.position.y += b.userData.riseSpeed * dt;
-
-          // Slight horizontal drift
-          b.position.x += (Math.random() - 0.5) * 0.02;
-          b.position.z += (Math.random() - 0.5) * 0.02;
+          // EN: Use persistent drift velocity instead of per-frame random jitter.
+          b.position.addScaledVector(b.userData.vel, dt);
           const t = b.userData.age / b.userData.life;
 
           // EN: Smooth fade-in + fade-out using sine curve (0→1→0)
@@ -1018,11 +1091,13 @@ fish.add(modelFix);
       if (params.showPathLeader && !pathLeaderMarker) {
         const g = new THREE.SphereGeometry(0.55, 14, 14);
         const m = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
+          color: 0xff44cc,
+          wireframe: true,
           transparent: true,
-          opacity: 0.9,
-          depthTest: false,
+          opacity: 1.0,
           depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide
         });
         pathLeaderMarker = new THREE.Mesh(g, m);
         pathLeaderMarker.frustumCulled = false;
@@ -1076,6 +1151,45 @@ fish.add(modelFix);
         flock[i] = 1.0;
         setMode(i, Math.random() < 0.25); // start with some solos
       }
+
+            // EN: Debug marker for the camera-relative front-glass target.
+      if (!glassTargetMarker) {
+        const g = new THREE.SphereGeometry(0.22, 12, 12);
+        const m = new THREE.MeshBasicMaterial({
+          color: 0xff4fd8,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: false,
+          depthWrite: false,
+        });
+        glassTargetMarker = new THREE.Mesh(g, m);
+        glassTargetMarker.visible = false;
+        glassTargetMarker.frustumCulled = false;
+        glassTargetMarker.renderOrder = 10001;
+        scene.add(glassTargetMarker);
+      }
+      // EN: Debug plane showing the screen-shaped glass visit area.
+      if (!glassPlaneDebug) {
+
+        const g = new THREE.PlaneGeometry(1, 1);
+
+        const m = new THREE.MeshBasicMaterial({
+          color: 0xff44cc,
+          transparent: true,
+          opacity: 0.15,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide
+        });
+
+        glassPlaneDebug = new THREE.Mesh(g, m);
+
+        glassPlaneDebug.visible = false;
+        glassPlaneDebug.renderOrder = 9999;
+
+        scene.add(glassPlaneDebug);
+      }
+
     // EN: Keep the test fish (#0) in the main school at startup.
       if (N > 0) setMode(0, false);
     resampleReactionLags();
@@ -1098,7 +1212,8 @@ fish.add(modelFix);
       `Sim time ${simTime.toFixed(1)} s · ` +
       `dt ${lastSimDt.toFixed(3)} s · ` +
       `acc ${simAccumulator.toFixed(3)} s · ` +
-      `simRate ${simSecondsPerRealSecond.toFixed(1)}x`;
+      `simRate ${simSecondsPerRealSecond.toFixed(1)}x · ` +
+      `visit ${visitorState.interest}`;
   }
 
     // ---------- UI binding ----------
@@ -1183,12 +1298,48 @@ fish.add(modelFix);
     const hud = document.getElementById("hud");
     const hudToggle = document.getElementById("hudToggle");
 
+
+      // EN: Apply current debug visibility to HUD and scene helpers.
+      function applyDebugVisibility() {
+        hud.classList.toggle("debug-hidden", !debugEnabled);
+
+        // EN: Keep drawer-open state in sync when debug is enabled/disabled.
+        if (debugEnabled) {
+          showHud();
+        } else {
+          hideHud();
+        }
+
+        if (worldAxes) worldAxes.visible = debugEnabled;
+        if (fish0LocalAxes) fish0LocalAxes.visible = debugEnabled;
+        if (pathLine) pathLine.visible = debugEnabled;
+        if (pathLineB) pathLineB.visible = debugEnabled;
+        if (pathLeaderMarker) pathLeaderMarker.visible = debugEnabled;
+        if (pathLeaderMarkerB) pathLeaderMarkerB.visible = debugEnabled;
+
+        if (glassTargetMarker) {
+          glassTargetMarker.visible = debugEnabled && visitState.phase !== "idle";
+        }
+        if (glassPlaneDebug) {
+          glassPlaneDebug.visible = debugEnabled;        }
+                  // EN: Recompute camera after HUD visibility change.
+        updateCameraForHud();
+      }
+
     function showHud() {
       hud.classList.add("is-open");
     }
     function hideHud() {
       hud.classList.remove("is-open");
     }
+
+  // EN: Always-visible debug button toggles all debug visuals together.
+  const debugToggleBtn = document.getElementById("debugToggle");
+
+  debugToggleBtn.addEventListener("click", () => {
+    debugEnabled = !debugEnabled;
+    applyDebugVisibility();
+  });
 
     // Tap footer to toggle HUD
     hudToggle.addEventListener("pointerdown", (e) => {
@@ -1242,6 +1393,15 @@ fish.add(modelFix);
       quat: new THREE.Quaternion(),
       m4: new THREE.Matrix4(),
       s: new THREE.Vector3(1, 1, 1),
+      camPos: new THREE.Vector3(),
+      camDir: new THREE.Vector3(),
+      camRight: new THREE.Vector3(),
+      camUp: new THREE.Vector3(),
+      trickOffset: new THREE.Vector3(),
+      trickSide: new THREE.Vector3(),
+      trickUp: new THREE.Vector3(),
+      returnTarget: new THREE.Vector3(),
+      visitAnchor: new THREE.Vector3(),
 
       // Scratch vectors for acceleration decomposition
       a: new THREE.Vector3(),
@@ -1262,16 +1422,46 @@ function step(dt) {
         // EN: Test mode - do not clamp dt here.
   // EN: This lets us observe where the simulation becomes unstable.
 
-      // EN: Temporary Path B visit for fish #0, then automatic return to Path A.
-      if (visitState.active) {
-        visitState.timeLeft -= dt;
-        if (visitState.timeLeft <= 0) {
-          visitState.active = false;
-          visitState.timeLeft = 0;
-          visitState.ingressAlpha = 0;
-        }
-      }
+      // EN: Visit phase state machine.
+  if (visitState.phase !== "idle") {
+    visitState.phaseTime += dt;
 
+    if (visitState.phase === "approach" && visitState.phaseTime >= params.visitApproachSec) {
+      visitState.phase = "hold";
+      visitState.phaseTime = 0;
+    } else if (visitState.phase === "hold" && visitState.phaseTime >= params.visitHoldSec) {
+      visitState.phase = "return";
+      visitState.phaseTime = 0;
+
+      // EN: Capture current fish position as the start of the return arc.
+      if (N > 0) visitState.returnStart.copy(P[0]);
+    } else if (visitState.phase === "return" && visitState.phaseTime >= params.visitReturnSec) {
+      visitState.phase = "idle";
+      visitState.phaseTime = 0;
+      visitorState.interest = 0;
+    }
+  }
+
+  // EN: Blend visit influence in/out based on phase.
+  {
+    const targetBlend = (visitState.phase === "idle") ? 0 : 1;
+    const tauMode = (visitState.phase === "approach" || visitState.phase === "hold")
+      ? params.visitIngressTau
+      : params.visitRelaxTau;
+
+    const alphaMode = 1 - Math.exp(-dt / Math.max(1e-6, tauMode));
+    visitState.blend += (targetBlend - visitState.blend) * alphaMode;
+  }
+
+  const fish0VisitActiveNow = (visitState.phase !== "idle");
+
+  if (glassTargetMarker) {
+    glassTargetMarker.visible = debugEnabled && fish0VisitActiveNow;
+  }
+
+  if (glassPlaneDebug) {
+    glassPlaneDebug.visible = debugEnabled && fish0VisitActiveNow;
+  }
       // Advance the global leader along the curve (once per step)
       // EN: Persistent u parameter prevents snapping at self-intersections.
       const duLeader = (params.pathLeaderSpeed * dt) / Math.max(pathApproxLength, 1);
@@ -1302,9 +1492,12 @@ function step(dt) {
       pathLeaderUB = (pathLeaderUB + duLeaderB) % 1;
 
       const leaderSampleB = samplePathAtUB(pathLeaderUB);
-      const leaderPosB = leaderSampleB.pos;
+      const leaderPosB = leaderSampleB.pos.clone();
       const leaderTanB = leaderSampleB.tan;
 
+  // EN: Path B leader stays as sampled; camera-relative visit anchor handles closeness.
+
+      // EN: Shift Path B leader closer to the front glass as interest grows.
       if (pathLeaderMarkerB) pathLeaderMarkerB.position.copy(leaderPosB);
 
       const neighborR = params.neighborRadius;      // convert px-ish values to world-ish
@@ -1343,15 +1536,13 @@ function step(dt) {
           const p = P[i];
           const v = V[i];
 
-          // EN: Active leader speed for this fish (A or B path).
-          const fish0VisitActive = (i === 0 && visitState.active);
-          const fish0PathBActive = (i === 0 && (params.testFishUsePathB || visitState.active));
-          const boidsScaleThis = fish0VisitActive ? params.visitBoidsScale : 1.0;
-          const sepScaleThis = fish0VisitActive ? params.visitSeparationScale : 1.0;
+          const fish0VisitActive = (i === 0 && visitState.phase !== "idle");
+          const fish0VisitInfluenced = (i === 0 && visitState.blend > 0.001);
+          const boidsScaleThis = fish0VisitInfluenced ? params.visitBoidsScale : 1.0;
+          const sepScaleThis = fish0VisitInfluenced ? params.visitSeparationScale : 1.0;
 
-          const useLeaderSpeed = fish0PathBActive
-            ? params.pathLeaderSpeedB
-            : params.pathLeaderSpeed;
+          // EN: Keep main leader speed normalization even while Path B data still exists.
+          const useLeaderSpeed = params.pathLeaderSpeed;
 
           // EN: Normalized leader speed 0..1 for low-speed behavior blending.
         const leaderSpeed01 = clamp(useLeaderSpeed / 1.8, 0, 1);
@@ -1409,10 +1600,141 @@ function step(dt) {
 
         // Path leader following: the whole school follows a single moving point on the curve.
         // EN: No nearest-point lookup => no snapping when the curve self-intersects.
-        const useLeaderPos = fish0PathBActive ? leaderPosB : leaderPos;
-        const useLeaderTan = fish0PathBActive ? leaderTanB : leaderTan;
+          let useLeaderPos = leaderPos.clone();
+          const useLeaderTan = leaderTan;
+
+          if (fish0VisitInfluenced) {
+              const interest01Raw = clamp(
+              visitorState.interest / Math.max(1, params.visitInterestMax),
+              0,
+              1
+            );
+
+            // EN: Compress high interest values so levels 4-5 do not push the fish too close
+            // EN: or enlarge the visit area too aggressively.
+            const interest01 = Math.pow(interest01Raw, 1.45);
+
+            const visitCamDist = lerp(
+              params.visitCameraDistFar,
+              params.visitCameraDistNear,
+              interest01
+            );
+
+            // EN: Build a camera-relative front-glass visit area that follows screen shape.
+            camera.getWorldPosition(tmp.camPos);
+            camera.getWorldDirection(tmp.camDir);
+
+            // EN: Camera-local basis vectors.
+            tmp.camRight.crossVectors(tmp.camDir, tmp.worldUp);
+            if (tmp.camRight.lengthSq() < 1e-8) {
+              tmp.camRight.set(1, 0, 0);
+            } else {
+              tmp.camRight.normalize();
+            }
+
+            tmp.camUp.crossVectors(tmp.camRight, tmp.camDir).normalize();
+
+            const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+            const isPortrait = window.innerHeight > window.innerWidth;
+
+            // EN: Portrait gets a narrower but taller target area.
+            const areaWidth =
+              params.visitAreaWidthBase * (isPortrait ? 0.72 : 1.25) * Math.max(0.85, aspect);
+
+            const areaHeight =
+              params.visitAreaHeightBase * (isPortrait ? 1.45 : 0.95);
+
+            const areaCenterY = isPortrait
+              ? params.visitAreaCenterYPortrait
+              : params.visitAreaCenterYLandscape;
+
+            // EN: Map visitor interest to a stable point inside the screen-shaped visit area.
+            const areaX = lerp(-0.18, 0.18, interest01);
+            const areaY = areaCenterY + lerp(0.10, -0.10, interest01);
+
+            tmp.visitAnchor
+              .copy(tmp.camPos)
+              .addScaledVector(tmp.camDir, visitCamDist)
+              .addScaledVector(tmp.camRight, areaX * areaWidth)
+              .addScaledVector(tmp.camUp, areaY * areaHeight);
+
+            if (glassTargetMarker) {
+              glassTargetMarker.position.copy(tmp.visitAnchor);
+            }
+
+            if (glassPlaneDebug) {
+              glassPlaneDebug.position.copy(tmp.visitAnchor);
+              glassPlaneDebug.scale.set(areaWidth * 2.0, areaHeight * 2.0, 1);
+
+              // EN: Make the debug plane use the exact same orientation as the camera.
+              // EN: This keeps the plane parallel to the screen even when the camera is orbited.
+              glassPlaneDebug.quaternion.copy(camera.quaternion);
+
+              console.log("glassPlaneDebug", glassPlaneDebug.position, areaWidth, areaHeight);
+            }
+
+            // EN: Add trick motion during approach and return.
+            if (visitState.phase === "approach" || visitState.phase === "return") {
+              const phaseDur =
+                visitState.phase === "approach"
+                  ? params.visitApproachSec
+                  : params.visitReturnSec;
+
+              const raw01 = visitState.phaseTime / Math.max(1e-6, phaseDur);
+              const phase01 = smooth01(raw01);
+
+              // EN: Camera-plane basis for decorative motion near the glass.
+              tmp.trickSide.copy(tmp.camRight);
+              tmp.trickUp.copy(tmp.camUp);
+
+              const spiralAmp =
+                visitState.phase === "approach"
+                  ? params.visitApproachSpiral
+                  : params.visitReturnSpiral;
+
+              const arcAmp =
+                visitState.phase === "approach"
+                  ? params.visitApproachArc
+                  : params.visitReturnArc;
+
+              const turnPhase = phase01 * Math.PI * 2 * params.visitTrickTurns;
+
+              // EN: Spiral inside the screen plane.
+              tmp.trickOffset
+                .copy(tmp.trickSide).multiplyScalar(Math.cos(turnPhase) * spiralAmp)
+                .addScaledVector(tmp.trickUp, Math.sin(turnPhase) * spiralAmp);
+
+              // EN: Arc in view direction: stronger in middle, zero at ends.
+              const arc01 = Math.sin(phase01 * Math.PI);
+
+              if (visitState.phase === "approach") {
+                tmp.trickOffset.addScaledVector(tmp.camDir, -arcAmp * arc01);
+                useLeaderPos.copy(tmp.visitAnchor).add(tmp.trickOffset);
+              } else {
+                tmp.returnTarget.copy(leaderPos);
+                useLeaderPos
+                  .lerpVectors(visitState.returnStart, tmp.returnTarget, phase01)
+                  .add(tmp.trickOffset)
+                  .addScaledVector(tmp.camDir, -arcAmp * arc01 * 0.35);
+              }
+            } else if (visitState.phase === "hold") {
+              useLeaderPos = useLeaderPos.lerp(tmp.visitAnchor, 0.98);
+            }
+
+            // EN: Remove residual off-axis drift relative to the camera view.
+            const offAxis = tmp.toPath.copy(useLeaderPos).sub(tmp.camPos);
+            const offAxisForward = tmp.camDir.dot(offAxis);
+
+            tmp.r2.copy(tmp.camDir).multiplyScalar(offAxisForward);
+            offAxis.sub(tmp.r2);
+
+            useLeaderPos.addScaledVector(offAxis, -0.35);
+          } else {
+            // EN: Do not hide shared debug helpers here.
+            // EN: step() iterates over all fish, so hiding here would cancel fish #0 debug visibility.
+          }
         // EN: Use the stop-ease of the ACTIVE leader for this fish.
-        const stopEaseThis = fish0PathBActive ? stopEaseB : stopEaseA;
+        const stopEaseThis = stopEaseA;
 
         // EN: At very low leader speed, school behavior should shift
         // EN: from path streaming to local formation holding.
@@ -1426,18 +1748,25 @@ function step(dt) {
           let latGain = 1.0;
           let flowGain = 1.0;
 
-          if (fish0VisitActive) {
-            pointPullGain = params.visitPathPullBoost * visitState.ingressAlpha;
-            latGain = params.visitPathPullBoost * visitState.ingressAlpha;
-            flowGain = 1.0 + (params.visitFlowBoost - 1.0) * visitState.ingressAlpha;
+          if (fish0VisitInfluenced) {
+             pointPullGain = params.visitPathPullBoost * visitState.blend;
+            latGain = params.visitPathPullBoost * visitState.blend;
+            flowGain = 1.0 + (params.visitFlowBoost - 1.0) * visitState.blend;
           }
 
           tmp.toPath.copy(useLeaderPos).sub(p);
+          const arriveDist = tmp.toPath.length();
+          const arrive01 = clamp(arriveDist / 6.0, 0, 1); // EN: 0 near target, 1 far away
+
         // EN: Small direct pull toward the leader point to reduce persistent corridor offset,
         // EN: especially when the leader slows/stops.
           if (tmp.toPath.lengthSq() > 1e-8) {
             tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
-            tmp.desired.addScaledVector(tmp.r2, pointPullThis * pointPullGain);
+            const arrivePull = fish0VisitActive
+              ? Math.pow(arrive01, 1.7)  // EN: much weaker direct pull very close to the visit anchor
+              : lerp(0.25, 1.0, arrive01);
+
+            tmp.desired.addScaledVector(tmp.r2, pointPullThis * pointPullGain * arrivePull);
           }
 
         // EN: Lateral error only (remove forward component)
@@ -1478,7 +1807,7 @@ function step(dt) {
         // EN: At very low leader speed, the flock needs a shared "school center follows leader"
         // EN: term, not only per-fish chasing of the leader point.
         if (!isSolo[i] && globalCount > 0) {
-          const schoolToLeader = fish0PathBActive ? schoolToLeaderB : schoolToLeaderA;
+          const schoolToLeader = schoolToLeaderA;
           const schoolDist = schoolToLeader.length();
 
           if (schoolDist > 1e-6) {
@@ -1504,9 +1833,8 @@ function step(dt) {
 
         // Keep school fairly thin in Z (soft pull toward z=0)
         // EN: Keep schools thin in Z, but pull toward the active path center (A: z=0, B: pathCenterZB).
-        const targetZ = fish0PathBActive ? params.pathCenterZB : 0.0;
-        tmp.desired.z += (targetZ - p.z) * params.zWanderK;
-
+          // EN: No extra world-Z forcing during front-glass visit.
+          // EN: Camera-relative anchor already defines the visit target.
         // Add smoothed noise
         // EN: More independence => more wander (noise). Helps form a satellite group.
         const noiseK = isSolo[i]
@@ -1514,16 +1842,6 @@ function step(dt) {
           : params.noiseStrength;
         // tmp.desired.addScaledVector(noise[i], noiseK);
         tmp.desired.addScaledVector(noise[i], noiseK * (1 - 0.85 * stopEaseThis)); // reduce noise when leader slows down
-
-        if (fish0VisitActive) {
-          const arriveT = clamp(tmp.toPath.length() / params.visitArriveDist, 0, 1);
-          const targetIngress = arriveT;
-          const tauVisit = (targetIngress > visitState.ingressAlpha)
-            ? params.visitIngressTau
-            : params.visitRelaxTau;
-          const alphaVisit = 1 - Math.exp(-dt / tauVisit);
-          visitState.ingressAlpha += (targetIngress - visitState.ingressAlpha) * alphaVisit;
-        }
 
         // Mild "glue" towards global center so the school doesn't split into multiple clusters
         if (globalCount > 0) {
@@ -1554,8 +1872,29 @@ function step(dt) {
         // EN: During focus, tmp.desired already encodes a desired velocity (including speed).
           if (true) {            // EN: At low leader speed, do not force every fish to cruise at a fixed speed.
             // EN: Let the summed steering magnitude stay smaller so the school can hover.
+            
             const maxSpeedThis = fish0VisitActive
-              ? params.maxSpeed * (1 + (params.visitMaxSpeedBoost - 1) * visitState.ingressAlpha)
+              ? (() => {
+                // EN: Strong distance-based slowdown near the front-glass anchor.
+                const visitSlow01 = clamp(arriveDist / Math.max(1e-6, params.visitSlowRadius), 0, 1);
+                const visitSpeed01 = Math.pow(visitSlow01, params.visitSpeedPow);
+
+                const nearSpeed =
+                  params.maxSpeed * params.visitNearSpeedFactor;
+
+                const visitEntry01 = clamp(arriveDist / Math.max(1e-6, params.visitEntryDist), 0, 1);
+                const entryBoost = lerp(1.0, params.visitEntrySpeedBoost, visitEntry01);
+
+                const farSpeed =
+                  params.maxSpeed *
+                  lerp(
+                    1.0,
+                    params.visitFarSpeedFactor * entryBoost,
+                    visitState.blend
+                  );
+
+                return lerp(nearSpeed, farSpeed, visitSpeed01);
+              })()
               : params.maxSpeed;
 
             const cruise = lerp(minSpeedThis, maxSpeedThis, leaderSpeed01);
@@ -1604,29 +1943,44 @@ function step(dt) {
       // Steering = desiredVel - currentVel
         tmp.steer.copy(tmp.desired).sub(v);
         // EN: Turn-rate limit for Path B test fish even in normal mode (prevents "twitch" on tight curves).
-          if (i === 0 && params.testFishUsePathB && !visitState.active && v.lengthSq() > 1e-8 && tmp.desired.lengthSq() > 1e-8) {
-                      const curDir = tmp.fwd.copy(v).normalize();
-          const tgtDir = tmp.tangent.copy(tmp.desired).normalize();
 
-          const maxTurnRate = 1.0; // rad/s, try 2.0..5.0
-          const maxAng = maxTurnRate * dt;
-
-          // rotateDirToward() exists already (global helper) – use it to limit direction change
-          const newDir = rotateDirToward(curDir, tgtDir, maxTurnRate, dt);
-          tmp.desired.copy(newDir).multiplyScalar(tmp.desired.length());
-        }
         clampLen(tmp.steer, params.maxSteer);
 
         // Integrate
         v.addScaledVector(tmp.steer, dt);
 
         // Clamp speed
-        const maxSpeedThis = fish0VisitActive
-          ? params.maxSpeed * (1 + (params.visitMaxSpeedBoost - 1) * visitState.ingressAlpha)
-          : params.maxSpeed;
-        const speed = v.length();
-        if (speed > maxSpeedThis) v.multiplyScalar(maxSpeedThis / speed);
-        else if (speed < minSpeedThis) v.multiplyScalar(minSpeedThis / speed);
+          const maxSpeedThis = fish0VisitActive
+            ? (() => {
+              // EN: Reuse the same near-target slowdown for the final integrated velocity clamp.
+              const visitSlow01 = clamp(arriveDist / Math.max(1e-6, params.visitSlowRadius), 0, 1);
+              const visitSpeed01 = Math.pow(visitSlow01, params.visitSpeedPow);
+
+              const nearSpeed =
+                params.maxSpeed * params.visitNearSpeedFactor;
+
+              const visitEntry01 = clamp(arriveDist / Math.max(1e-6, params.visitEntryDist), 0, 1);
+              const entryBoost = lerp(1.0, params.visitEntrySpeedBoost, visitEntry01);
+
+              const farSpeed =
+                params.maxSpeed *
+                lerp(
+                  1.0,
+                  params.visitFarSpeedFactor * entryBoost,
+                  visitState.blend
+                );
+
+              return lerp(nearSpeed, farSpeed, visitSpeed01);
+            })()
+            : params.maxSpeed;
+
+          const minSpeedClampThis = fish0VisitActive
+            ? Math.min(minSpeedThis, maxSpeedThis * 0.55)
+            : minSpeedThis;
+
+          const speed = v.length();
+          if (speed > maxSpeedThis) v.multiplyScalar(maxSpeedThis / speed);
+          else if (speed < minSpeedClampThis) v.multiplyScalar(minSpeedClampThis / Math.max(speed, 1e-6));
         p.addScaledVector(v, dt);
 
 
@@ -1667,16 +2021,23 @@ function step(dt) {
         const maxR = (params.pathRadius + params.pathJitter) * 2.1; // gentle spherical bound around the path
         const r3 = p.clone().sub(params.center);
         const r3Len = r3.length();
-        if (r3Len > maxR) {
-          r3.multiplyScalar(1 / (r3Len + 1e-6));
-          p.addScaledVector(r3, -(r3Len - maxR) * 0.12);
-        }
+
+          // EN: Fade the origin-centered soft bound back in gradually for fish #0
+          // EN: after the front-glass visit. This avoids a delayed snap when blend
+          // EN: finally drops below a hard threshold.
+          const visitBlendThis = (i === 0) ? visitState.blend : 0.0;
+          const boundK = 0.12 * (1.0 - visitBlendThis);
+
+          if (r3Len > maxR && boundK > 1e-5) {
+            r3.multiplyScalar(1 / (r3Len + 1e-6));
+            p.addScaledVector(r3, -(r3Len - maxR) * boundK);
+          }
       }
     }
 
     // ---------- Render instanced fish ----------
-    function renderMeshes() {
-      for (let i = 0; i < N; i++) {
+      function renderMeshes(dt) {
+          for (let i = 0; i < N; i++) {
         const p = P[i];
         const dir = V[i].clone().normalize();
 
@@ -1722,14 +2083,14 @@ function step(dt) {
           const upX = new THREE.Vector3(1, 0, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
           const upY = new THREE.Vector3(0, 1, 0).applyQuaternion(fish.quaternion).dot(tmp.worldUp); // EN: local +Y = up
           const upZ = new THREE.Vector3(0, 0, 1).applyQuaternion(fish.quaternion).dot(tmp.worldUp);
-          console.log("dotUp X/Y/Z:", upX.toFixed(3), upY.toFixed(3), upZ.toFixed(3));
+         // console.log("dotUp X/Y/Z:", upX.toFixed(3), upY.toFixed(3), upZ.toFixed(3));
         }
         // EN: Measure actual "uprightness" of fish #0 (angle between its up axis and world up)
         if (i === 0 && (performance.now() % 400 < 16)) {
           const upWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(fish.quaternion); // EN: local +Y is up (v5.9)
           const dotUp = clamp(upWorld.dot(tmp.worldUp), -1, 1);
           const upAngleDeg = Math.acos(dotUp) * 57.3;
-          console.log("upAngleDeg:", upAngleDeg.toFixed(1), "dirLen:", V[i].length().toFixed(3));
+          //console.log("upAngleDeg:", upAngleDeg.toFixed(1), "dirLen:", V[i].length().toFixed(3));
         }
 
         // EN: Update debug arrow to match fish #0 velocity direction
@@ -1741,20 +2102,63 @@ function step(dt) {
           debugArrow.setDirection(tmp.fwd);
         }
 
-        // Tail thrust + glow from forward acceleration (no oscillation)
+        // EN: Tail visuals are driven by signed acceleration, not just positive thrust.
+        // EN: Positive forward accel stretches the tail; braking compresses it.
+        // EN: Lateral acceleration adds a small side-turn component.
+        // EN: This is visual-only and must not feed back into steering.
         const tail = fishTails[i];
 
-        // Forward thrust: only positive (accelerating forward)
-        const f = aForwardSm[i];
-        const fPos = Math.max(0, f);
+        const fRaw = aForwardSm[i];
+        const lRaw = aLateralSm[i];
 
-        // Map forward accel to 0..1
-        const fCap = 2.0; // more sensitive cap (units/s^2)
-        const thrust = Math.min(fPos, fCap) / fCap;
+        // EN: Deadbands remove tiny near-zero flicker.
+        const fDead = 0.10;
+        const lDead = 0.08;
 
-        // Tail length and glow (StandardMaterial)
-        tail.scale.set(1, 0.75 + 2.2 * thrust, 1);
-        tail.material.emissiveIntensity = 0.35 + 4.0 * thrust;
+        const fSigned =
+          Math.abs(fRaw) > fDead
+            ? Math.sign(fRaw) * (Math.abs(fRaw) - fDead)
+            : 0;
+
+        const lSigned =
+          Math.abs(lRaw) > lDead
+            ? Math.sign(lRaw) * (Math.abs(lRaw) - lDead)
+            : 0;
+
+        // EN: Normalize to visual control range.
+        const fCap = 2.0;
+        const lCap = 1.2;
+
+        const fTarget = clamp(fSigned / fCap, -1, 1);
+        const lTarget = clamp(lSigned / lCap, -1, 1);
+
+        // EN: Extra smoothing for stable visual tail motion.
+        const alphaTail = 1 - Math.exp(-dt / 0.22);
+        tailForwardSm[i] += (fTarget - tailForwardSm[i]) * alphaTail;
+        tailLateralSm[i] += (lTarget - tailLateralSm[i]) * alphaTail;
+
+        const fVis = tailForwardSm[i];
+        const lVis = tailLateralSm[i];
+
+        // EN: Positive accel stretches, braking compresses.
+        const tailLenY = 1.10 + 1.40 * fVis;
+
+        // EN: Add a small lateral turn signal to the tail.
+        const tailWidthX = 1.00 + 0.18 * Math.abs(lVis);
+        const tailYawZ = -0.48 * lVis;
+        // EN: Clamp to safe visual ranges.
+        tail.scale.set(
+          clamp(tailWidthX, 0.90, 1.30),
+          clamp(tailLenY, 0.45, 2.40),
+          1
+        );
+
+        tail.rotation.z = tailYawZ;
+                // EN: small lateral offset to make turning visible
+        tail.position.x = -0.16 * lVis;
+
+        // EN: Keep glow tied mainly to forward effort magnitude.
+        tail.material.emissiveIntensity = 0.35 + 2.6 * Math.abs(fVis);
 
 
         // --- Eye + mouth scaling (simple expressive motion) ---
@@ -1762,8 +2166,7 @@ function step(dt) {
         const mouth = fishMouths[i];
 
         // EN: Use forward accel "thrust" for alertness (eyes slightly larger)
-        const eyeK = 1.0 + 0.35 * thrust; // ~1.0..1.35
-        // EN: Keep eye shape/orientation from init; only scale uniformly.
+        const eyeK = 1.0 + 0.35 * Math.max(0, fVis);        // EN: Keep eye shape/orientation from init; only scale uniformly.
         if (eyeBar.userData && eyeBar.userData.baseScale) {
           eyeBar.scale.copy(eyeBar.userData.baseScale).multiplyScalar(eyeK);
         } else {
@@ -1813,23 +2216,32 @@ function step(dt) {
         g = clamp(g, 0, 1);
         const allowRoll = g * g * (3 - 2 * g); // smoothstep
 
-        const bankGated = bank * allowRoll;
+        let bankGated = bank * allowRoll;
+
+        // EN: Extra celebratory roll for fish #0 during approach/return trick phases.
+        if (i === 0 && (visitState.phase === "approach" || visitState.phase === "return")) {
+          const phaseDur =
+            visitState.phase === "approach"
+              ? params.visitApproachSec
+              : params.visitReturnSec;
+
+          const phase01 = smooth01(visitState.phaseTime / Math.max(1e-6, phaseDur));
+          const rollWave = Math.sin(phase01 * Math.PI * 2 * params.visitTrickTurns);
+          bankGated += rollWave * params.visitTrickRollMax;
+        }
         
         tmp.bankQ.setFromAxisAngle(tmp.localForwardAxis, bankGated);
         fish.quaternion.multiply(tmp.bankQ);
       }
     }
-    function updateCameraForHud() {
-      const hud = document.getElementById("hud");
-      const hudH = hud ? hud.getBoundingClientRect().height : 0;
 
-      // EN: Fraction of the screen not covered by the HUD.
-      const bottomPad = 16; // px safety margin
-      const visibleFrac = clamp(1 - (hudH + bottomPad) / window.innerHeight, 0.35, 1.0);
+  function updateCameraForHud() {
+    // EN: Debug/HUD visibility must not affect camera distance.
+    // EN: Camera distance is controlled only by baseCamZ and the orbit direction.
+      const isPortrait = window.innerHeight > window.innerWidth;
 
-      // EN: Desired camera distance from target, adjusted for HUD and manual zoom.
-      const targetDist = (params.baseCamZ / visibleFrac); // EN: distance only compensates HUD
-      // EN: Keep the current viewing direction, only change the distance along it.
+      // EN: Keep portrait view slightly farther away because vertical space is tighter.
+      const targetDist = params.baseCamZ * (isPortrait ? 2.58 : 1.00);     // EN: Keep the current viewing direction, only change the distance along it.
       // Camera is looking at origin => direction to target is (target - position).  // EN: Camera always zooms relative to the simulation center (world origin).
       // EN: True zoom via FOV: higher viewZoom => smaller FOV => stronger magnification
       camera.fov = clamp(baseFov / params.viewZoom, 12, 75);
@@ -1879,29 +2291,23 @@ function step(dt) {
 
     updateCamera();
 
-    renderer.domElement.addEventListener("pointerdown", (e) => {
-      // EN: If HUD is open, a tap on the canvas only closes it (no orbit drag, no focus command).
-      if (hud.classList.contains("is-open")) {
-         dragging = false;
-        // Close HUD on pointerup to avoid accidental close when starting a drag gesture.
-        renderer.domElement._closeHudOnUp = true;
-        return;
-      }
+  renderer.domElement.addEventListener("pointerdown", (e) => {
+    // EN: Allow canvas drag even when the debug HUD is visible.
+    // EN: The HUD is now controlled only by the DEBUG toggle, not by canvas taps.
+    renderer.domElement._closeHudOnUp = false;
 
-      renderer.domElement._closeHudOnUp = false;
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
 
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
+    // EN: Store initial pointer position for click-vs-drag detection.
+    renderer.domElement._downX = e.clientX;
+    renderer.domElement._downY = e.clientY;
+    renderer.domElement._moved = false;
+    renderer.domElement._downTime = performance.now();
 
-      // EN: Click/tap detection (used to trigger focus command when there is no drag).
-      renderer.domElement._downX = e.clientX;
-      renderer.domElement._downY = e.clientY;
-      renderer.domElement._moved = false;
-      renderer.domElement._downTime = performance.now();
-
-      renderer.domElement.setPointerCapture(e.pointerId);
-    });
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
 
     renderer.domElement.addEventListener("pointermove", (e) => {
       if (!dragging) return;
@@ -1920,22 +2326,31 @@ function step(dt) {
       updateCamera();
     });
 
-    renderer.domElement.addEventListener("pointerup", () => {
-      if (renderer.domElement._closeHudOnUp) {
-        hideHud();
-        renderer.domElement._closeHudOnUp = false;
-        return;
-      }
+  renderer.domElement.addEventListener("pointerup", () => {
+    // EN: Legacy HUD auto-close from canvas interaction is disabled.
+    renderer.domElement._closeHudOnUp = false;
 
       const wasDrag = renderer.domElement._moved;
       dragging = false;
 
-      // EN: A short tap/click sends fish #0 to Path B temporarily, then it returns to Path A.
+      // EN: A short tap/click sends fish #0 to Path B temporarily.
+      // EN: Repeated clicks also raise visitor interest for future interaction layers.
       if (!wasDrag) {
         if (N > 0) {
-          visitState.active = true;
-          visitState.timeLeft = params.visitDurationSec;
-          visitState.ingressAlpha = 1.0;
+          visitorState.interest = Math.min(visitorState.interest + 1, 5);
+          visitorState.lastClickMs = performance.now();
+
+          if (visitState.phase === "idle") {
+            // EN: Start a full visit sequence from approach.
+            visitState.phase = "approach";
+            visitState.phaseTime = 0;
+          } else if (visitState.phase === "hold") {
+            // EN: Extend only the hold phase on repeated clicks.
+            visitState.phaseTime = Math.max(
+              0,
+              visitState.phaseTime - params.visitExtendSec
+            );
+          }
         }
       }
     });
@@ -1950,7 +2365,10 @@ function step(dt) {
     init();
     applyDensity();
     applySoloIndependence();
-    showHud(); // EN: Open HUD by default; in landscape it is a fixed visible panel.
+
+    // EN: Start with debug visuals hidden. Use the always-visible DEBUG button or D key to show them.
+    applyDebugVisibility();
+
     updateSimStatus();
 
     let lastT = performance.now();
@@ -1996,7 +2414,7 @@ function step(dt) {
       lastRealTime = now;
       lastSimTimeForRate = simTime;
 
-      renderMeshes();
+      renderMeshes(simFixedDt);
 
       // EN: Refresh the status line at 0.5 s intervals to avoid visual flicker.
       if ((t - simStatusLastUiMs) >= 1000) {
