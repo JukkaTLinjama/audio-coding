@@ -651,6 +651,14 @@ fish.add(modelFix);
       visitLatPullBoost: 4.2,
       visitReactionLagScale: 0.15,  // EN: Shorter reaction lag during Path A -> B transfer.
       visitFlowBoost: 2.1,
+
+      // EN: Visual reference length for deciding when fish should swim vs hover.
+      // EN: Path-following stays strong when target is farther than a few fish lengths.
+      // EN: Inside about one fish length, steering becomes more like hovering/drifting.
+      fishVisualLength: 1.8,
+      hoverDistanceMul: 1.0,
+      swimDistanceMul: 3.0,
+
      };
 
     // ---------- Interaction / Command state ----------
@@ -1536,7 +1544,7 @@ function step(dt) {
 
           // EN: Transition from path streaming to local formation holding.
           // EN: Keep more forward path flow at low leader speed so fish do not lose corridor guidance.
-          const flowScaleThis = lerp(0.42, 1.00, leaderSpeed01);          
+          const flowScaleThis = lerp(0.42, 1.00, leaderSpeed01);
           const minSpeedThis = lerp(0.08, params.minSpeed, leaderSpeed01);
 
           // EN: Base direct pull toward the active leader point.
@@ -1553,14 +1561,36 @@ function step(dt) {
           const arriveDist = tmp.toPath.length();
           const arrive01 = clamp(arriveDist / 6.0, 0, 1); // EN: 0 near target, 1 far away
 
+          // EN: Distance-based swim/hover blend using fish visual length as reference.
+          // EN: 0 = hover/drift near the target, 1 = normal swimming toward the target.
+          const fishLen = params.fishVisualLength;
+          const swim01Base = clamp(
+            (arriveDist - params.hoverDistanceMul * fishLen) /
+            Math.max(1e-6, (params.swimDistanceMul - params.hoverDistanceMul) * fishLen),
+            0,
+            1
+          );
+
+          // EN: Apply the swim/hover test only to fish #0 during committed Path B transfer.
+          // EN: All other fish keep their current behavior for now.
+          const swim01 = (i === 0 && pathBlendThis > 0.35) ? swim01Base : 1.0;
+          const hover01 = 1.0 - swim01;
+          
         // EN: Small direct pull toward the leader point to reduce persistent corridor offset,
         // EN: especially when the leader slows/stops.
-          if (tmp.toPath.lengthSq() > 1e-8) {
-            tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
-            const arrivePull = lerp(0.55, 1.0, arrive01);
+        if (tmp.toPath.lengthSq() > 1e-8) {
+          tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
+          const arrivePull = lerp(0.55, 1.0, arrive01);
 
-            tmp.desired.addScaledVector(tmp.r2, pointPullThis * pointPullGain * arrivePull);
-          }
+          // EN: Keep direct attraction slightly stronger near the target so fish #0
+          // EN: settles toward the target region instead of trying to orbit tightly.
+          const pointPullHoverBoost = lerp(1.25, 1.0, swim01);
+
+          tmp.desired.addScaledVector(
+            tmp.r2,
+            pointPullThis * pointPullGain * arrivePull * pointPullHoverBoost
+          );
+        }
 
         // EN: Lateral error only (remove forward component)
         const fwd = useLeaderTan; // unit
@@ -1589,15 +1619,27 @@ function step(dt) {
             kLatGain *
             latFollowK;
 
-          tmp.desired.addScaledVector(tmp.r1, latWeight * latGain);
+        // EN: Near the target, reduce lateral corridor correction so fish #0
+        // EN: drifts toward the target region instead of wobbling tightly around Path B.
+        const latPullScale = swim01;
 
+        tmp.desired.addScaledVector(
+          tmp.r1,
+          latWeight * latGain * latPullScale
+        );
         // EN: Reduce forward-flow suppression from lateral offset.
         // EN: Fish may be off the corridor briefly, but should still keep moving along the path.
         const gate = 1 / (1 + 0.35 * latDist);
 
         // EN: Forward path flow must follow the ACTIVE leader speed.
         // EN: Otherwise the school keeps trying to cruise fast while the leader crawls.
-        tmp.desired.addScaledVector(useLeaderTan, useLeaderSpeed * gate * flowScaleThis * flowGain);
+        // EN: Near the target, reduce tangent-follow so fish #0 drifts toward the
+        // EN: target region instead of tightly tracing a very small local path.
+        const tangentFollowScale = swim01;
+        tmp.desired.addScaledVector(
+          useLeaderTan,
+          useLeaderSpeed * gate * flowScaleThis * flowGain * tangentFollowScale
+        );
         // EN: At very low leader speed, the flock needs a shared "school center follows leader"
         // EN: term, not only per-fish chasing of the leader point.
         if (!isSolo[i] && globalCount > 0) {
@@ -1644,8 +1686,16 @@ function step(dt) {
           ? params.noiseStrength * (1 + 1.6 * (1 - flock[i]))  // up to ~2.6x when flock≈0
           : params.noiseStrength;
 
-          const noiseScale = lerp(0.15, 1.0, leaderSpeed01);  // EN: Reduce noise influence at low leader speed to prevent fish from wandering off when the target is slow.
-          tmp.desired.addScaledVector(noise[i], noiseK * noiseScale);
+        // EN: Keep normal wander noise for the school.
+        // EN: Low-speed noise reduction is tested only for fish #0 on Path B.
+        let noiseScale = 1.0;
+
+        if (i === 0 && pathBlendThis > 0.35) {
+          noiseScale = lerp(0.15, 1.0, leaderSpeed01);
+        }
+
+        tmp.desired.addScaledVector(noise[i], noiseK * noiseScale);
+
             // Mild "glue" towards global center so the school doesn't split into multiple clusters
         if (globalCount > 0) {
           const toGlobal = globalCenter.clone().sub(p);
@@ -1727,8 +1777,19 @@ function step(dt) {
 
           // EN: reduce steering authority when leader speed is low.
           // EN: prevents fish from spinning in place when targetSpeed ~ 0.
-          const steerScale = lerp(0.18, 1.0, leaderSpeed01);
-          tmp.steer.multiplyScalar(steerScale);
+        // EN: Keep default steering unchanged for the whole school.
+        // EN: Special low-speed steering damping is tested only for fish #0 on Path B.
+        let steerScale = 1.0;
+
+        if (i === 0 && pathBlendThis > 0.35) {
+          // EN: Near the target, also reduce steering authority so fish #0
+          // EN: drifts/settles instead of wobbling around a tiny Path B region.
+          const steerScaleLeader = lerp(0.18, 1.0, leaderSpeed01);
+          const steerScaleHover = lerp(0.22, 1.0, swim01);
+          steerScale = steerScaleLeader * steerScaleHover;
+        }
+
+        tmp.steer.multiplyScalar(steerScale);
 
           clampLen(tmp.steer, params.maxSteer);
 
@@ -1739,7 +1800,14 @@ function step(dt) {
 
         // EN: extra velocity damping when leader is slow.
         // EN: makes fish drift instead of spinning when targetSpeed ~ 0.
-        const slowDamp = lerp(0.88, 1.0, leaderSpeed01);
+        // EN: Keep default velocity integration unchanged for the whole school.
+        // EN: Extra damping is only used for the Path-B test fish.
+        let slowDamp = 1.0;
+
+        if (i === 0 && pathBlendThis > 0.35) {
+          slowDamp = lerp(0.88, 1.0, leaderSpeed01);
+        }
+
         v.multiplyScalar(slowDamp);
 
         // Clamp speed
