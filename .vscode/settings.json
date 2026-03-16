@@ -2,5 +2,17 @@
     "editor.wordWrap": "off",
     "[markdown]": {
         "editor.wordWrap": "on"
+    },
+
+    "editor.bracketPairColorization.enabled": true,
+
+    "workbench.colorCustomizations": {
+        // Hakutulosten korostus
+        "editor.findMatchBackground": "#ff00007b", // Taustaväri (esim. punainen, 50% läpinäkyvyys)
+        //"editor.findMatchBorder": "#FF0000", // Reunaviiva
+        "editor.findMatchHighlightBackground": "#ff000085", // Korostus taustalla
+        // Sulkujen korostus (bracket matching)
+        "editor.bracketMatch.background": "#00FF0030", // Taustaväri (esim. vihreä, 20% läpinäkyvyys)
+        "editor.bracketMatch.border": "#00FF00", // Reunaviiva
     }
 }
