@@ -2005,8 +2005,16 @@ function step(dt) {
         g = clamp(g, 0, 1);
         const allowRoll = g * g * (3 - 2 * g); // smoothstep
 
-        let bankGated = bank * allowRoll;
+          // EN: Reduce visual banking at low speed so near-static fish stay calmer.
+          const bankSpeedRef = 0.45;
+          const bankSpeed01 = smoothstep01(speed / bankSpeedRef);
 
+          // EN: Keep some bank even at low speed so motion does not look dead.
+          const minBankVisual = 0.35;
+          const bankVisualScale = lerp(minBankVisual, 1.0, bankSpeed01);
+
+          let bankGated = bank * allowRoll * bankVisualScale;
+          
         tmp.bankQ.setFromAxisAngle(tmp.localForwardAxis, bankGated);
         fish.quaternion.multiply(tmp.bankQ);
       }

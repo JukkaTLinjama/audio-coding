@@ -2,8 +2,8 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "fish school v8",
-            "title": "simulation of fish school v8.6",
+            "id": "fish school v9",
+            "title": "simulation of fish school v9",
             "path": "./parvisimul/kalat-v8.6.html",
             "thumb": "/assets/Fish-v7.png",
             "status": "WIP",
