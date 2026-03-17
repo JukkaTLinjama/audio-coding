@@ -1554,16 +1554,7 @@ function step(dt) {
           
           const arrive01 = clamp(arriveDist / 6.0, 0, 1); // EN: 0 near target, 1 far away
 
-          // EN: Diagnostic drift test for fish #0 on Path B.
-    // EN: Inside a very small radius, disable Path B guidance terms completely.
-    // EN: This isolates whether tight circling is caused by point/lateral/tangent guidance.
     let disablePathBGuidance = false;
-
-    if (i === 0 && pathBlendThis > 0.35) {
-      const fishLen = 1.05;        // EN: approx visual fish length in world units
-      const driftRadius = fishLen; // EN: pure drift test radius
-      disablePathBGuidance = arriveDist < driftRadius;
-    }
 
     // EN: Lateral error only (remove forward component)
     const fwd = useLeaderTan; // unit
@@ -1615,10 +1606,24 @@ function step(dt) {
 
       // EN: Forward path flow must follow the ACTIVE leader speed.
       // EN: Otherwise the school keeps trying to cruise fast while the leader crawls.
+      // EN: Near the committed Path B target, reduce only the forward tangent flow
+      // EN: for fish #0 so orbiting can relax without weakening capture farther away.
+      let flowNearScale = 1.0;
+
+      if (i === 0 && pathBlendThis > 0.35) {
+        const fishLen = 1.05;
+        const hoverRadius = fishLen;
+        const hoverNear01 = clamp(1.0 - arriveDist / hoverRadius, 0.0, 1.0);
+
+        const hoverFlowFactor = 0.15;
+        flowNearScale = lerp(1.0, hoverFlowFactor, hoverNear01);
+      }
+
       tmp.desired.addScaledVector(
         useLeaderTan,
-        useLeaderSpeed * gate * flowScaleThis * flowGain
+        useLeaderSpeed * gate * flowScaleThis * flowGain * flowNearScale
       );
+      
     }
             // EN: At very low leader speed, the flock needs a shared "school center follows leader"
         // EN: term, not only per-fish chasing of the leader point.
@@ -1713,15 +1718,8 @@ function step(dt) {
             // EN: only reduce final speed for fish #0 when Path B is already committed
             // EN: and the fish is very near the active Path B target.
             // EN: Steering geometry stays unchanged so Path B capture should remain intact.
-            if (i === 0 && pathBlendThis > 0.35) {
-              const fishLen = 1.05;          // EN: approx visual fish length in world units
-              const hoverRadius = fishLen;   // EN: start slowing only within about one fish length
-              const hoverDist = arriveDist;  // EN: already computed distance to active leader point
-              const hoverNear01 = clamp(1.0 - hoverDist / hoverRadius, 0.0, 1.0);
-
-              const hoverSpeedFactor = 0.45; // EN: keep motion alive; do not freeze on the path
-              targetMag = lerp(targetMag, targetMag * hoverSpeedFactor, hoverNear01);
-            }
+           
+            // EN: hover speed test disabled for now
 
             setMag(tmp.desired, targetMag);
           }
@@ -1763,16 +1761,7 @@ function step(dt) {
         // EN: Near the active Path B target, reduce steering authority for fish #0 only.
         // EN: This keeps Path B capture unchanged farther away, but removes tight circling
         // EN: once the fish is already inside the Path B region.
-        if (i === 0 && pathBlendThis > 0.35) {
-          const fishLen = 1.05;            // EN: approx visual fish length in world units
-          const hoverRadius = fishLen;     // EN: only affect steering very near the target
-          const hoverNear01 = clamp(1.0 - arriveDist / hoverRadius, 0.0, 1.0);
-
-          const steerHoverFactor = 0.22;   // EN: keep some steering; do not go to zero
-          const steerScale = lerp(1.0, steerHoverFactor, hoverNear01);
-
-          tmp.steer.multiplyScalar(steerScale);
-        }
+    // EN: hover steering test disabled for now
 
         clampLen(tmp.steer, params.maxSteer);
 
