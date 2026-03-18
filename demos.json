@@ -4,8 +4,8 @@
         {
             "id": "fish school v9",
             "title": "simulation of fish school v9",
-            "path": "./parvisimul/kalat-v8.6.html",
-            "thumb": "/assets/Fish-v7.png",
+            "path": "./parvisimul/kalat-v9.1.html",
+            "thumb": "assets/Fish-v5.png",
             "status": "WIP",
             "description": "fish simul v. sim speed control & fish 0 kiss.",
             "tags": [
@@ -18,7 +18,7 @@
             "id": "vibro-keyboard-3",
             "title": "Vibroacoustic keyboard v3",
             "path": "./Vibroacoustic/vibro-keyboard-v2.9.html",
-            "thumb": "/assets/vibro-keyboard-2.4.png",
+            "thumb": "assets/vibro-keyboard-2.4.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping rec/play functionality.",
             "tags": [
@@ -30,7 +30,7 @@
             "id": "vibro-keyboard",
             "title": "Vibroacoustic keyboard v2",
             "path": "./Vibroacoustic/docs/vibro-keyboard-v2.8.html",
-            "thumb": "/assets/vibro-keyboard-2.4.png",
+            "thumb": "assets/vibro-keyboard-2.4.png",
             "status": "WIP",
             "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. ",
             "tags": [
@@ -43,7 +43,7 @@
             "id": "loop gen v2.5",
             "title": "Loop gen v2.5",
             "path": "Vibroacoustic/test generators/path-generator-v2.5.2-granular-gpl-overlap.html",
-            "thumb": "/assets/Path-loop-gen-2.1.png",
+            "thumb": "assets/Path-loop-gen-2.1.png",
             "status": "WIP",
             "description": "Sound is treated as a 1D observation of a higher-dimensional geometric system.",
             "tags": [
@@ -55,7 +55,7 @@
             "id": "timescales visualisation 2025",
             "title": "History timescale visualisation v50.2",
             "path": "https://jukkatlinjama.github.io/timescale_dev/",
-            "thumb": "/assets/timeline_v49.9.png",
+            "thumb": "assets/timeline_v49.9.png",
             "status": "WIP",
             "description": "A vertical, zoomable logarithmic timeline of key events from the Big Bang to the present (2026).",
             "tags": [
