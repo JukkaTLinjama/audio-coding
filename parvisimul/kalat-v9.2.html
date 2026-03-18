@@ -594,16 +594,20 @@ fish.add(modelFix);
       pathZAmplitudeB: 1.0,
       pathCenterXB: 0.0,
       pathCenterYB: 0.0,
-      pathCenterZB: 20.0,      // EN: move Path B closer to camera (+Z)
-                  // EN: Base/near targets for Path B driven by blend0.
-      pathBBaseCenterZ: 20.0,
-      pathBNearCenterZ: 36.2,
+      pathCenterZB: 30.0,      // EN: Fixed Path B depth closer to camera.
+      pathBBaseCenterZ: 30.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
+      pathBNearCenterZ: 30.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
 
       clickPathBBoost: 36.0,             // EN: Initial Path B leader speed multiplier after click
       clickPathBBoostDuration: 6.0,     // EN: Keep boost long enough for actual approach
 
       clickPathBGlideFactor: 0.08,      // EN: Final Path B speed factor for near-still floating
       clickPathBSettleDuration: 2.0,    // EN: Fade from boost to glide after the approach phase
+      // EN: One-shot click launch impulse for fish #0 when entering Path B.
+      clickLaunchImpulse: 4.8,       // EN: added speed magnitude in world units / s
+      clickLaunchForwardMix: 0.85,   // EN: keep some current forward direction
+      clickLaunchSideMix: 1.10,      // EN: visible sideways peel-off toward camera-right
+      clickLaunchToPathMix: 0.55,    // EN: keep the launch biased toward Path B
 
       pathBBaseLeaderSpeed: 0.42,
       pathBNearLeaderSpeed: 0.12,
@@ -663,7 +667,7 @@ fish.add(modelFix);
 
     // EN: v8 cleanup: visit-specific phase state has been removed.
     // EN: Interaction now targets a generic per-fish A/B path blend.
-    const pathBlendTau = 0.25;
+    const pathBlendTau = 0.15;
 
     // EN: Runtime simulation speed multiplier.
     // EN: This scales the simulation time step without changing real frame time.
@@ -853,17 +857,15 @@ fish.add(modelFix);
       }
     }
 
-      // EN: Path B blend currently affects only Path B leader speed.
-      // EN: Path geometry itself stays fixed after init for stability.
+  // EN: Path B blend currently affects only Path B leader speed.
+  // EN: Path B depth is fixed after init for stability.
   function updatePathBFromBlend(blend01) {
     const b = clamp(blend01, 0, 1);
 
-    const nextCenterZ = lerp(params.pathBBaseCenterZ, params.pathBNearCenterZ, b);
     const nextLeaderSpeed = lerp(params.pathBBaseLeaderSpeed, params.pathBNearLeaderSpeed, b);
 
-    params.pathCenterZB = nextCenterZ;
+    // EN: Keep Path B depth fixed after init; only leader speed is blended at runtime.
     params.pathLeaderSpeedB = nextLeaderSpeed;
-
     //rebuildPathB(); // EN: Rebuild Path B geometry after center-Z update
   }
     
@@ -1321,6 +1323,53 @@ fish.add(modelFix);
     }
   }
 
+    function launchFish0TowardPathB() {
+      if (N <= 0) return;
+
+      const i = 0;
+
+      // EN: Sample current Path B leader position for a launch direction cue.
+      const leaderSampleB = samplePathAtUB(pathLeaderUB);
+      const toPathB = new THREE.Vector3().subVectors(leaderSampleB.pos, P[i]);
+
+      // EN: Current forward direction from fish velocity.
+      const forward = V[i].clone();
+      if (forward.lengthSq() < 1e-8) {
+        forward.set(0, 0, 1);
+      } else {
+        forward.normalize();
+      }
+
+      // EN: Camera-right gives a visible sideways peel-off in screen space.
+      const camForward = new THREE.Vector3();
+      camera.getWorldDirection(camForward);
+
+      const camRight = new THREE.Vector3()
+        .crossVectors(camForward, camera.up)
+        .normalize();
+
+      if (toPathB.lengthSq() > 1e-8) {
+        toPathB.normalize();
+      }
+
+      // EN: Compose a launch direction:
+      // EN: current forward + visible side bias + some pull toward Path B.
+      const launchDir = new THREE.Vector3()
+        .addScaledVector(forward, params.clickLaunchForwardMix)
+        .addScaledVector(camRight, params.clickLaunchSideMix * 0.72)
+        .addScaledVector(camForward, 0.42) // EN: Bias launch slightly toward camera for a softer visible arc.
+        .addScaledVector(toPathB, params.clickLaunchToPathMix);
+
+      if (launchDir.lengthSq() < 1e-8) return;
+      launchDir.normalize();
+
+      // EN: Add one-shot velocity impulse, then allow temporary overspeed.
+      V[i].addScaledVector(launchDir, params.clickLaunchImpulse);
+
+      // EN: Keep desired smoothing aligned with the launch to avoid immediate damping.
+      desiredSm[i].copy(V[i]);
+    }
+
 function step(dt) {
 
   // ============================================================
@@ -1526,7 +1575,7 @@ function step(dt) {
         let useLeaderTan;
         let useLeaderSpeed;
 
-        if (pathBlendThis < 0.35) {
+        if (pathBlendThis < 0.05) { 
 
           useLeaderPos = leaderPos.clone().lerp(leaderPosB, pathBlendThis);
 
@@ -1565,26 +1614,39 @@ function step(dt) {
 
           // EN: Base direct pull toward the active leader point.
           // EN: Stronger at low leader speed, weaker at higher leader speed.
-          const pointPullThis = params.targetPullK * lerp(1.00, 0.22 / 1.15, leaderSpeed01);
+        let pointPullThis = params.targetPullK * lerp(1.00, 0.22 / 1.15, leaderSpeed01);
+
+        // EN: Keep stronger direct arrival pull for fish #0 during Path B transfer.
+        // EN: Do not let high Path B leader speed weaken target locking too much.
+        if (i === 0 && pathBlendTarget[0] > 0.5) {
+          pointPullThis = Math.max(pointPullThis, params.targetPullK * 0.95);
+        }
 
           // EN: Split direct target pull from lateral corridor pull.
           // EN: This makes Path-B transfer more decisive without over-correcting sideways.
-          const pointPullGain = lerp(1.0, params.visitPointPullBoost, pathBlendThis);
-          const latGain = lerp(1.0, params.visitLatPullBoost, pathBlendThis);
-          const flowGain = lerp(1.0, params.visitFlowBoost, pathBlendThis);
+        const pointPullGain = lerp(1.0, params.visitPointPullBoost, pathBlendThis);
+        const latGain = lerp(1.0, params.visitLatPullBoost, pathBlendThis);
+        const flowGain = lerp(1.0, params.visitFlowBoost, pathBlendThis);
 
-          tmp.toPath.copy(useLeaderPos).sub(p);
-          const arriveDist = tmp.toPath.length();
-          const arrive01 = clamp(arriveDist / 6.0, 0, 1); // EN: 0 near target, 1 far away
+        let pointPullGainThis = pointPullGain;
+
+        // EN: Extra arrival pull for fish #0 during Path B transfer.
+        if (i === 0 && pathBlendTarget[0] > 0.5) {
+          pointPullGainThis *= 1.4;
+        }
+
+        tmp.toPath.copy(useLeaderPos).sub(p);
+        const arriveDist = tmp.toPath.length();
+        const arrive01 = clamp(arriveDist / 6.0, 0, 1);
 
         // EN: Small direct pull toward the leader point to reduce persistent corridor offset,
         // EN: especially when the leader slows/stops.
-          if (tmp.toPath.lengthSq() > 1e-8) {
-            tmp.r2.copy(tmp.toPath).normalize();         // r2 = direction to leader point
-            const arrivePull = lerp(0.55, 1.0, arrive01);
+        if (tmp.toPath.lengthSq() > 1e-8) {
+          tmp.r2.copy(tmp.toPath).normalize();         // EN: Direction to leader point
+          const arrivePull = lerp(0.55, 1.0, arrive01);
 
-            tmp.desired.addScaledVector(tmp.r2, pointPullThis * pointPullGain * arrivePull);
-          }
+          tmp.desired.addScaledVector(tmp.r2, pointPullThis * pointPullGainThis * arrivePull);
+        }
 
         // EN: Lateral error only (remove forward component)
         const fwd = useLeaderTan; // unit
@@ -1624,7 +1686,7 @@ function step(dt) {
           // EN: Reduce forward tangent flow very near committed Path B target for fish #0 only.
           let tangentScale = 1.0;
 
-          if (i === 0 && pathBlendThis > 0.35) {
+          if (i === 0 && pathBlendThis > 0.15) {
             const fishLen = 1.05;
             const hoverRadius = fishLen;
             const hoverNear01 = clamp(1.0 - arriveDist / hoverRadius, 0.0, 1.0);
@@ -1736,7 +1798,14 @@ function step(dt) {
         tmp.steer.copy(tmp.desired).sub(v);
         // EN: Turn-rate limit for Path B test fish even in normal mode (prevents "twitch" on tight curves).
 
-        clampLen(tmp.steer, params.maxSteer);
+        let maxSteerThis = params.maxSteer;
+
+        // EN: Allow stronger turning / acceleration for fish #0 during Path B transfer.
+        if (i === 0 && pathBlendTarget[0] > 0.5) {
+          maxSteerThis *= 1.8;
+        }
+
+        clampLen(tmp.steer, maxSteerThis);
 
         // --------------------------------------------------
         // 4D) Integrate motion
@@ -1744,12 +1813,16 @@ function step(dt) {
         v.addScaledVector(tmp.steer, dt);
 
         // Clamp speed
-          const maxSpeedThis = params.maxSpeed;
-          const minSpeedClampThis = minSpeedThis;
+        let maxSpeedThis = params.maxSpeed;
 
-          const speed = v.length();
-          if (speed > maxSpeedThis) v.multiplyScalar(maxSpeedThis / speed);
-          else if (speed < minSpeedClampThis) v.multiplyScalar(minSpeedClampThis / Math.max(speed, 1e-6));
+        // EN: Allow temporary overspeed for fish #0 during Path B click launch
+        if (i === 0 && clickPathBBoostTimer > 0 && pathBlendTarget[0] > 0.5) {
+          maxSpeedThis *= 2.4;
+        }
+
+        const speed = v.length();
+        if (speed > maxSpeedThis) v.multiplyScalar(maxSpeedThis / speed);
+        
         p.addScaledVector(v, dt);
 
 
@@ -2115,6 +2188,9 @@ function step(dt) {
         if (nextBlendTarget > 0.5) {
           clickPathBBoostTimer = params.clickPathBBoostDuration;
           clickPathBSettleTimer = params.clickPathBSettleDuration;
+
+          // EN: Give fish #0 a visible one-shot launch impulse toward Path B.
+          launchFish0TowardPathB();
         } else {
           clickPathBBoostTimer = 0;
           clickPathBSettleTimer = 0;
