@@ -4,7 +4,7 @@
         {
             "id": "fish school v9",
             "title": "simulation of fish school v9",
-            "path": "./parvisimul/kalat-v9.2.html",
+            "path": "./parvisimul/kalat-v9.3.html",
             "thumb": "assets/Fish-v5.png",
             "status": "WIP",
             "description": "fish simul v. sim speed control & fish 0 kiss.",
