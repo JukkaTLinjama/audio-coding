@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Path Event Bubbles v3.2</title>
+  <link rel="icon" href="data:,"> 
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121922;
+      --text: #d7e3f4;
+      --muted: #8ea3bd;
+      --accent: #66aaff;
+      --line: #223246;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 14px;
+    }
+
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .row label {
+      min-width: 130px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .row input[type="range"] {
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .row .value {
+      width: 72px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    button {
+      background: #18304c;
+      color: var(--text);
+      border: 1px solid #29517f;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #204063;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #081018;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    .hud {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <h1>Path Event Bubbles v3.2</h1>
+
+    <div class="panel">
+      <div class="row">
+        <button id="btnStart">Start audio</button>
+        <button id="btnStop">Stop</button>
+        <button id="btnRandomPath">Gen random path</button>
+        <button id="btnPulsePath">Gen pulse path</button>
+      </div>
+
+      <div class="row">
+        <label for="pathRadius">Path radius</label>
+        <input id="pathRadius" type="range" min="40" max="180" step="1" value="110" />
+        <div id="pathRadiusVal" class="value">110</div>
+      </div>
+
+      <div class="row">
+        <label for="pathZAmplitude">Pulse Z amp</label>
+        <input id="pathZAmplitude" type="range" min="0" max="120" step="1" value="60" />
+        <div id="pathZAmplitudeVal" class="value">60</div>
+      </div>
+
+      <div class="row">
+        <label for="pathControlPoints">Control points</label>
+        <input id="pathControlPoints" type="range" min="8" max="64" step="1" value="24" />
+        <div id="pathControlPointsVal" class="value">24</div>
+      </div>
+
+      <div class="row">
+        <label for="loopSeconds">Loop seconds</label>
+        <input id="loopSeconds" type="range" min="1" max="12" step="0.1" value="4.0" />
+        <div id="loopSecondsVal" class="value">4.0 s</div>
+      </div>
+
+      <div class="row">
+        <label for="eventRate">Events / sec</label>
+        <input id="eventRate" type="range" min="1" max="12" step="0.1" value="6.0" />
+        <div id="eventRateVal" class="value">6.0</div>
+      </div>
+
+      <div class="row">
+        <label for="bubbleMs">Bubble ms</label>
+        <input id="bubbleMs" type="range" min="20" max="140" step="1" value="50" />
+        <div id="bubbleMsVal" class="value">50 ms</div>
+      </div>
+
+      <div class="row">
+        <label for="baseMidi">Base MIDI</label>
+        <input id="baseMidi" type="range" min="36" max="94" step="1" value="57" />
+        <div id="baseMidiVal" class="value">57</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="view" width="900" height="520"></canvas>
+      <div id="hud" class="hud"></div>
+    </div>
+  </div>
+
+  <script>
+    const params = {
+      pathRadius: 110,
+      pathZAmplitude: 60,
+      pathControlPoints: 24,
+      loopSeconds: 4.0,
+      eventRate: 4.0,
+      bubbleMs: 50,
+      baseMidi: 57,
+      currentPathMode: "pulse"
+    };
+
+    let audioCtx = null;
+    let masterGain = null;
+    let isRunning = false;
+    // EN: Reusable noise source buffer for bubble grains.
+    let bubbleNoiseBuffer = null;
+
+    let currentPathPoints = [];
+    let loopPhase = 0;
+    let lastFrameTime = performance.now();
+
+    let schedulerTimer = null;
+    let nextEventTime = 0;
+
+    const canvas = document.getElementById("view");
+    const g = canvas.getContext("2d");
+    const hudEl = document.getElementById("hud");
+
+    const pathRadiusEl = document.getElementById("pathRadius");
+    const pathZAmplitudeEl = document.getElementById("pathZAmplitude");
+    const pathControlPointsEl = document.getElementById("pathControlPoints");
+    const loopSecondsEl = document.getElementById("loopSeconds");
+    const eventRateEl = document.getElementById("eventRate");
+    const bubbleMsEl = document.getElementById("bubbleMs");
+    const baseMidiEl = document.getElementById("baseMidi");
+
+    const pathRadiusVal = document.getElementById("pathRadiusVal");
+    const pathZAmplitudeVal = document.getElementById("pathZAmplitudeVal");
+    const pathControlPointsVal = document.getElementById("pathControlPointsVal");
+    const loopSecondsVal = document.getElementById("loopSecondsVal");
+    const eventRateVal = document.getElementById("eventRateVal");
+    const bubbleMsVal = document.getElementById("bubbleMsVal");
+    const baseMidiVal = document.getElementById("baseMidiVal");
+
+    document.getElementById("btnStart").addEventListener("click", startAudio);
+    document.getElementById("btnStop").addEventListener("click", stopAudio);
+    document.getElementById("btnRandomPath").addEventListener("click", () => {
+      params.currentPathMode = "random";
+      rebuildPath(true); // EN: Explicitly generate a fresh random path on button press.
+    });
+
+    document.getElementById("btnPulsePath").addEventListener("click", () => {
+      params.currentPathMode = "pulse";
+      rebuildPath(); // EN: Rebuild deterministic pulse path when switching mode.
+    });
+
+    pathRadiusEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Update pulse geometry only; keep random path shape unchanged.
+    });
+
+    pathZAmplitudeEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Update pulse geometry only; keep random path shape unchanged.
+    });
+
+    pathControlPointsEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Update pulse geometry only; keep random path shape unchanged.
+    });
+
+    loopSecondsEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Loop timing changes may affect pulse playback preview, not random shape.
+    });
+
+    eventRateEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Keep event mapping live without regenerating random path.
+    });
+
+    bubbleMsEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Keep event mapping live without regenerating random path.
+    });
+
+    baseMidiEl.addEventListener("input", () => {
+      syncParamsFromUI();
+      refreshPathFromParams(); // EN: Keep event mapping live without regenerating random path.
+    });
+
+    function syncParamsFromUI() {
+      params.pathRadius = +pathRadiusEl.value;
+      params.pathZAmplitude = +pathZAmplitudeEl.value;
+      params.pathControlPoints = Math.max(8, Math.floor(+pathControlPointsEl.value));
+      params.loopSeconds = +loopSecondsEl.value;
+      params.eventRate = +eventRateEl.value;
+      params.bubbleMs = +bubbleMsEl.value;
+      params.baseMidi = +baseMidiEl.value;
+
+      pathRadiusVal.textContent = String(params.pathRadius);
+      pathZAmplitudeVal.textContent = String(params.pathZAmplitude);
+      pathControlPointsVal.textContent = String(params.pathControlPoints);
+      loopSecondsVal.textContent = params.loopSeconds.toFixed(1) + " s";
+      eventRateVal.textContent = params.eventRate.toFixed(1);
+      bubbleMsVal.textContent = params.bubbleMs.toFixed(0) + " ms";
+      baseMidiVal.textContent = String(params.baseMidi);
+    }
+
+    function refreshPathFromParams() {
+        if (params.currentPathMode === "pulse") {
+          rebuildPath(); // EN: Pulse path is parameter-driven, so refresh its geometry.
+        }
+        // EN: Random path keeps its current shape; only audio/control mapping changes.
+      }
+
+    // EN: Wrap angle to [-PI, PI] so the pulse stays symmetric around its center.
+    function wrapToPi(a) {
+      let x = (a + Math.PI) % (Math.PI * 2);
+      if (x < 0) x += Math.PI * 2;
+      return x - Math.PI;
+    }
+
+    // EN: Ricker / Mexican-hat pulse; symmetric and approximately DC-neutral.
+    function ricker(t, sigma) {
+      const s2 = sigma * sigma;
+      const u2 = (t * t) / s2;
+      return (1 - u2) * Math.exp(-0.5 * u2);
+    }
+
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    // EN: Pulse path uses constant angular speed in the XY plane.
+    function buildPulsePathPoints() {
+      const pts = [];
+      const N = Math.max(64, params.pathControlPoints * 4);
+      const R = params.pathRadius;
+      const Z = params.pathZAmplitude;
+      const centerA = Math.PI / 2;
+      const sigma = 0.22;
+
+      for (let i = 0; i < N; i++) {
+        const u = i / N;
+        const a = u * Math.PI * 2;
+
+        const x = Math.cos(a) * R;
+        const y = Math.sin(a) * R;
+        const z = Z * ricker(wrapToPi(a - centerA), sigma);
+
+        pts.push({ x, y, z, u });
+      }
+      return pts;
+    }
+
+  function buildRandomPathPoints() {
+    const pts = [];
+    const N = Math.max(48, params.pathControlPoints * 4);
+    const R = params.pathRadius;
+
+    // EN: Random phases for smooth but not overly circular radial variation.
+    const p1 = Math.random() * Math.PI * 2;
+    const p2 = Math.random() * Math.PI * 2;
+    const p3 = Math.random() * Math.PI * 2;
+    const p4 = Math.random() * Math.PI * 2;
+
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+
+      // EN: Moderate multi-band radial modulation:
+      // EN: smoother than jagged point-random, but less circular than the previous version.
+      const rMod =
+        1.0
+        + 0.22 * Math.sin(2 * a + p1)
+        + 0.14 * Math.sin(3 * a + p2)
+        + 0.09 * Math.sin(5 * a + p3)
+        + 0.05 * Math.sin(7 * a + p4);
+
+      const x = Math.cos(a) * R * rMod;
+      const y = Math.sin(a) * R * rMod;
+
+      // EN: Smooth Z variation with a bit more structure.
+      const z =
+        params.pathZAmplitude * (
+          0.42 * Math.sin(a + p2) +
+          0.24 * Math.sin(3 * a + p3) +
+          0.10 * Math.sin(5 * a + p4)
+        );
+
+      pts.push({ x, y, z, u: i / N });
+    }
+
+    return pts;
+  }
+
+  function rebuildPath(forceNewRandom = false) {
+    if (params.currentPathMode === "pulse") {
+      currentPathPoints = buildPulsePathPoints();
+      return;
+    }
+
+    if (forceNewRandom || currentPathPoints.length === 0) {
+      currentPathPoints = buildRandomPathPoints(); // EN: Generate a new random path only on explicit request.
+    }
+  }
+
+    // EN: Sample a closed polyline path at normalized phase u in [0..1).
+    function samplePathAt(u) {
+      const pts = currentPathPoints;
+      if (!pts.length) return { x: 0, y: 0, z: 0, u: 0 };
+
+      const n = pts.length;
+      const f = ((u % 1) + 1) % 1 * n;
+      const i0 = Math.floor(f) % n;
+      const i1 = (i0 + 1) % n;
+      const t = f - Math.floor(f);
+
+      const a = pts[i0];
+      const b = pts[i1];
+
+      return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+        u
+      };
+    }
+
+    // EN: Create a mono white-noise buffer for short bubble/noise grains.
+      function createNoiseBuffer(ctx, duration = 0.08) {
+        const sr = ctx.sampleRate;
+        const len = Math.max(1, Math.floor(duration * sr));
+        const buf = ctx.createBuffer(1, len, sr);
+        const data = buf.getChannelData(0);
+
+        for (let i = 0; i < len; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+
+        return buf;
+      }
+
+    // EN: Trigger one short bubble-like synth grain.
+ // EN: Trigger one short bubble-like grain using a sine core + filtered noise layer.
+  // EN: Old pure-noise version is kept commented below for rollback.
+  function triggerBubbleGrain(ctx, when, opts = {}) {
+    const freq = opts.freq ?? 440;
+    const duration = opts.duration ?? 0.05;
+    const gainAmount = opts.gain ?? 0.08;
+    const pan = opts.pan ?? 0;
+
+    const osc = ctx.createOscillator();
+    const noise = ctx.createBufferSource();
+
+    const toneGain = ctx.createGain();
+    const noiseGain = ctx.createGain();
+    const sumGain = ctx.createGain();
+
+    const panner = ctx.createStereoPanner();
+
+    const toneFilter = ctx.createBiquadFilter();
+    const noiseFilter = ctx.createBiquadFilter();
+
+    // EN: Apply a smoother grain window to avoid clicks at grain start/end.
+    const attack = Math.min(0.012, duration * 0.25);
+    const release = Math.min(0.018, duration * 0.35);
+    const sustainEnd = Math.max(when + attack, when + duration - release);
+
+    // EN: Main resonant tone layer (gives the bubble a pitch center)
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq * 1.12, when);
+    osc.frequency.exponentialRampToValueAtTime(freq, when + duration * 0.9);
+
+    toneFilter.type = "bandpass";
+    toneFilter.frequency.setValueAtTime(Math.max(180, freq * 1.4), when);
+    toneFilter.Q.setValueAtTime(4.5, when);
+
+    toneGain.gain.cancelScheduledValues(when); 
+    toneGain.gain.setValueAtTime(0.0, when);
+    toneGain.gain.linearRampToValueAtTime(gainAmount, when + attack);
+    toneGain.gain.linearRampToValueAtTime(gainAmount * 0.75, sustainEnd);
+    toneGain.gain.linearRampToValueAtTime(0.0, when + duration);
+
+    // EN: Quiet filtered noise layer adds a soft airy edge without turning into snare noise
+    noise.buffer = bubbleNoiseBuffer;
+    noise.playbackRate.setValueAtTime(1.0, when);
+
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.setValueAtTime(Math.max(300, freq * 2.5), when);
+    noiseFilter.Q.setValueAtTime(1.8, when);
+
+    noiseGain.gain.cancelScheduledValues(when);
+    noiseGain.gain.setValueAtTime(0.0, when);
+    noiseGain.gain.linearRampToValueAtTime(gainAmount * 0.10, when + attack);
+    noiseGain.gain.linearRampToValueAtTime(gainAmount * 0.06, sustainEnd);
+    noiseGain.gain.linearRampToValueAtTime(0.0, when + duration);
+
+    sumGain.gain.setValueAtTime(1.0, when);
+    panner.pan.setValueAtTime(pan, when);
+
+    osc.connect(toneFilter);
+    toneFilter.connect(toneGain);
+    toneGain.connect(sumGain);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(sumGain);
+
+    sumGain.connect(panner);
+    panner.connect(masterGain);
+
+    osc.start(when);
+    noise.start(when);
+
+    osc.stop(when + duration + 0.01);
+    noise.stop(when + duration + 0.01);
+
+    /*
+    // EN: Previous pure-noise version kept for rollback.
+    const noiseOnly = ctx.createBufferSource();
+    const amp = ctx.createGain();
+    const noisePanner = ctx.createStereoPanner();
+    const filter = ctx.createBiquadFilter();
+  
+    noiseOnly.buffer = bubbleNoiseBuffer;
+    noiseOnly.playbackRate.setValueAtTime(1.0, when);
+  
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(Math.max(180, freq * 2.2), when);
+    filter.Q.setValueAtTime(5.0, when);
+  
+    amp.gain.setValueAtTime(0.0001, when);
+    amp.gain.exponentialRampToValueAtTime(gainAmount, when + 0.004);
+    amp.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+  
+    noisePanner.pan.setValueAtTime(pan, when);
+  
+    noiseOnly.connect(filter);
+    filter.connect(amp);
+    amp.connect(noisePanner);
+    noisePanner.connect(masterGain);
+  
+    noiseOnly.start(when);
+    noiseOnly.stop(when + duration + 0.01);
+    */
+  }
+
+    // EN: Trigger a simple 3-note chord with one grain per channel/voice.
+    function triggerBubbleTriad(ctx, when, baseFreq, panCenter) {
+      const ratios = [1.0, 1.25, 1.5];
+      const pans = [
+        Math.max(-1, panCenter - 0.45),
+        panCenter,
+        Math.min(1, panCenter + 0.45)
+      ];
+
+      for (let i = 0; i < 3; i++) {
+        triggerBubbleGrain(ctx, when, {
+          freq: baseFreq * ratios[i],
+          duration: params.bubbleMs / 1000,
+          gain: 0.5,
+          pan: pans[i]
+        });
+      }
+    }
+
+    // EN: Map path position to musical control values.
+    function pathToEventControl(p) {
+      const angle = Math.atan2(p.y, p.x);
+      const pan = Math.max(-1, Math.min(1, p.x / Math.max(1, params.pathRadius)));
+
+      // EN: Map z to a pitch offset in semitones around the base MIDI note.
+      const zNorm = params.pathZAmplitude > 0 ? (p.z / params.pathZAmplitude) : 0;
+      const midi = params.baseMidi + zNorm * 7.0;
+      const baseFreq = midiToFreq(midi);
+
+      return { angle, pan, baseFreq };
+    }
+
+  function startAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.8;
+      masterGain.connect(audioCtx.destination);
+    }
+
+    if (!bubbleNoiseBuffer) {
+      // EN: Prebuild one reusable white-noise buffer for bubble events.
+      bubbleNoiseBuffer = createNoiseBuffer(audioCtx, 0.08);
+    }
+
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+
+    if (isRunning) return;
+    isRunning = true;
+
+    nextEventTime = audioCtx.currentTime + 0.05;
+    startScheduler();
+  }
+
+    function stopAudio() {
+      isRunning = false;
+      stopScheduler();
+    }
+
+    function startScheduler() {
+      stopScheduler();
+
+      schedulerTimer = setInterval(() => {
+        if (!audioCtx || !isRunning) return;
+
+        const lookAhead = 0.1;
+        while (nextEventTime < audioCtx.currentTime + lookAhead) {
+          const u = (nextEventTime / params.loopSeconds) % 1;
+          const p = samplePathAt(u);
+          const c = pathToEventControl(p);
+
+          triggerBubbleTriad(audioCtx, nextEventTime, c.baseFreq, c.pan);
+          nextEventTime += 1 / Math.max(0.1, params.eventRate);
+        }
+      }, 25);
+    }
+
+    function stopScheduler() {
+      if (schedulerTimer) {
+        clearInterval(schedulerTimer);
+        schedulerTimer = null;
+      }
+    }
+
+    function draw() {
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      // EN: View projection parameters (local to draw to avoid scope issues)
+      const viewTiltX = 0.72;
+      const viewTiltY = 0.38;
+      const viewLiftY = 0.48;
+      const viewZGain = 2.2;
+      const cx = canvas.width * 0.5;
+      const cy = canvas.height * 0.5;
+      const scale = 1.7;
+
+      g.lineWidth = 2;
+      g.strokeStyle = "#2b5d8e";
+      g.beginPath();
+
+      for (let i = 0; i < currentPathPoints.length; i++) {
+        const p = currentPathPoints[i];
+        // EN: Simple tilted projection so Z depth is more visible on screen.
+        const viewTiltX = 0.72;   // how much X stays horizontal
+        const viewTiltY = 0.38;   // how much Y contributes sideways
+        const viewLiftY = 0.55;   // how much Y contributes vertically
+        const viewZGain = 1.8;    // how strongly Z is shown vertically
+
+        const sx = cx + (p.x * viewTiltX + p.y * viewTiltY) * scale; // EN: Same tilted projection for the path points.
+        const sy = cy - (p.y * viewLiftY + p.z * viewZGain) * scale;
+        if (i === 0) g.moveTo(sx, sy);
+        else g.lineTo(sx, sy);
+      }
+      g.closePath();
+      g.stroke();
+
+      const tNow = performance.now() * 0.001;
+      loopPhase = (tNow / params.loopSeconds) % 1;
+      const pNow = samplePathAt(loopPhase);
+
+      const sx = cx + (pNow.x * viewTiltX + pNow.y * viewTiltY) * scale; // EN: Same projection for the current event position.
+      const sy = cy - (pNow.y * viewLiftY + pNow.z * viewZGain) * scale;
+
+      g.fillStyle = "#66aaff";
+      g.beginPath();
+      g.arc(sx, sy, 8, 0, Math.PI * 2);
+      g.fill();
+
+      const c = pathToEventControl(pNow);
+
+      hudEl.textContent =
+        `mode = ${params.currentPathMode}
+loopPhase = ${loopPhase.toFixed(3)}
+x = ${pNow.x.toFixed(1)}   y = ${pNow.y.toFixed(1)}   z = ${pNow.z.toFixed(1)}
+baseFreq = ${c.baseFreq.toFixed(1)} Hz
+pan = ${c.pan.toFixed(2)}
+eventRate = ${params.eventRate.toFixed(1)} / s
+bubble = ${params.bubbleMs.toFixed(0)} ms`;
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+
+      draw(dt);
+      requestAnimationFrame(animate);
+    }
+
+    syncParamsFromUI();
+    rebuildPath();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+
+</html>
