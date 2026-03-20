@@ -1,766 +1,635 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Path loop gen v2.5.2 (granular)</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Path Event Bubbles v3.1</title>
+  <link rel="icon" href="data:,"> 
   <style>
-    :root { color-scheme: dark; }
-    html, body { margin:0; height:100%; background:#0b0d10; color:#e8eef7; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    #app { display:grid; grid-template-columns: 320px 1fr; height:100%; }
-@media (max-width: 900px){ #app{ grid-template-columns: 300px 1fr; } }
-@media (max-width: 720px){ #app{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; } #panel{ border-right:none; border-bottom:1px solid rgba(255,255,255,.08);} }
-    #panel {
-      padding:14px 14px 10px;
-      border-right: 1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.03);
-      overflow:auto;
+    :root {
+      --bg: #0b0f14;
+      --panel: #121922;
+      --text: #d7e3f4;
+      --muted: #8ea3bd;
+      --accent: #66aaff;
+      --line: #223246;
     }
-    h1 { font-size:16px; margin:0 0 10px; font-weight:650; }
-    .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
-    .row > label { flex:1; font-size:11px; opacity:.92; }
-    .row input[type="range"]{ width:100%; height:18px; }
-    .val { width:54px; text-align:right; font-variant-numeric: tabular-nums; opacity:.9; font-size:11px; }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 14px;
+    }
+
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .row label {
+      min-width: 130px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .row input[type="range"] {
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .row .value {
+      width: 72px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      font-size: 14px;
+    }
+
     button {
-      background:#1f2937; color:#e8eef7; border:1px solid rgba(255,255,255,.14);
-      padding:8px 10px; border-radius:10px; cursor:pointer;
+      background: #18304c;
+      color: var(--text);
+      border: 1px solid #29517f;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      cursor: pointer;
     }
-    button:active { transform: translateY(1px); }
-    #view { position:relative; }
-    #three { position:absolute; inset:0; }
-    #three canvas { width:100% !important; height:100% !important; display:block; }
-    #outScopeWrap { position:absolute; left:12px; right:12px; bottom:144px; height:92px; pointer-events:none; }
-#scopeWrap { position:absolute; left:12px; right:12px; bottom:12px; height:120px; pointer-events:none; }
-    #outScope{
-      width:100%; height:100%;
-      border-radius:14px;
-      background: rgba(0,0,0,.35);
-      outline: 1px solid rgba(255,255,255,.10);
+
+    button:hover {
+      background: #204063;
     }
-#scope {
-      width:100%; height:100%;
-      border-radius:14px;
-      background: rgba(0,0,0,.35);
-      outline: 1px solid rgba(255,255,255,.10);
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #081018;
+      border: 1px solid var(--line);
+      border-radius: 12px;
     }
-    #hud {
-      position:absolute; left:12px; top:12px; padding:8px 10px;
-      border-radius:12px; background: rgba(0,0,0,.35);
-      outline: 1px solid rgba(255,255,255,.10);
-      font-size:12px; white-space:pre; font-variant-numeric: tabular-nums;
-      pointer-events:none;
+
+    .hud {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-line;
     }
-    .hint { font-size:12px; opacity:.75; line-height:1.35; margin-top:10px; }
-    .hr { height:1px; background:rgba(255,255,255,.08); margin:12px 0; }
   </style>
 </head>
+
 <body>
-  <div id="app">
-    <div id="panel">
-      <h1 id="title"></h1>
+  <div class="app">
+    <h1>Path Event Bubbles v3.1</h1>
 
+    <div class="panel">
       <div class="row">
-        <button id="btnStart">Start</button>
+        <button id="btnStart">Start audio</button>
         <button id="btnStop">Stop</button>
-      </div>
-
-      <div class="row">
-        <label>Frequency (Hz) <span class="val" id="speedVal"></span></label>
-        <input id="speedHz" type="range" min="0.50" max="60.0" step="0.10" value="20.00" />
-      </div>
-
-      
-      <div class="row">
-        <label>Grains / loop <span class="val" id="gplVal"></span></label>
-        <input id="grainsPerLoop" type="range" min="0.2" max="50" step="0.1" value="12.0" />
-      </div>
-
-      <div class="row">
-        <label>Overlap <span class="val" id="ovVal"></span></label>
-        <input id="overlap" type="range" min="0.00" max="0.85" step="0.01" value="0.25" />
-      </div>
-
-      <div class="row">
-        <label>Grain (ms) <span class="val" id="grainMsVal"></span></label>
-        <input id="grainMsRO" type="range" min="1" max="250" step="1" value="50" disabled />
-      </div>
-<div class="row">
-        <label>Volume <span class="val" id="volVal"></span></label>
-        <input id="vol" type="range" min="0" max="0.8" step="0.001" value="0.12" />
-      </div>
-
-      <div class="hr"></div>
-
-      <div class="row">
-        <label>Path radius <span class="val" id="rVal"></span></label>
-        <input id="pathRadius" type="range" min="1" max="20" step="0.1" value="7" />
-      </div>
-      <div class="row">
-        <label>Path jitter <span class="val" id="jVal"></span></label>
-        <input id="pathJitter" type="range" min="0" max="10" step="0.1" value="2.2" />
-      </div>
-      <div class="row">
-        <label>Z amplitude <span class="val" id="zVal"></span></label>
-        <input id="pathZAmplitude" type="range" min="0" max="20" step="0.1" value="6" />
-      </div>
-      <div class="row">
-        <label>Control points <span class="val" id="mVal"></span></label>
-        <input id="pathControlPoints" type="range" min="4" max="40" step="1" value="9" />
-      </div>
-      <div class="row">
-        <button id="btnNewRandomPath">Gen new random path</button>
+        <button id="btnRandomPath">Gen random path</button>
         <button id="btnPulsePath">Gen pulse path</button>
       </div>
 
-      <div class="hr"></div>
+      <div class="row">
+        <label for="pathRadius">Path radius</label>
+        <input id="pathRadius" type="range" min="40" max="180" step="1" value="110" />
+        <div id="pathRadiusVal" class="value">110</div>
+      </div>
 
-      <div class="hint">
-        EN: v2.5.2 granular synthesis, random and pulse paths. A slow “source buffer” (4000 samples) is generated from a 3D curve (max 5 updates/sec).
-        Audio is produced by scheduling windowed grains (Hann) with overlap-add. Frequency (Hz) controls how fast we traverse the source (cycles/sec).
+      <div class="row">
+        <label for="pathZAmplitude">Pulse Z amp</label>
+        <input id="pathZAmplitude" type="range" min="0" max="120" step="1" value="60" />
+        <div id="pathZAmplitudeVal" class="value">60</div>
+      </div>
+
+      <div class="row">
+        <label for="pathControlPoints">Control points</label>
+        <input id="pathControlPoints" type="range" min="8" max="64" step="1" value="24" />
+        <div id="pathControlPointsVal" class="value">24</div>
+      </div>
+
+      <div class="row">
+        <label for="loopSeconds">Loop seconds</label>
+        <input id="loopSeconds" type="range" min="1" max="12" step="0.1" value="4.0" />
+        <div id="loopSecondsVal" class="value">4.0 s</div>
+      </div>
+
+      <div class="row">
+        <label for="eventRate">Events / sec</label>
+        <input id="eventRate" type="range" min="1" max="12" step="0.1" value="6.0" />
+        <div id="eventRateVal" class="value">6.0</div>
+      </div>
+
+      <div class="row">
+        <label for="bubbleMs">Bubble ms</label>
+        <input id="bubbleMs" type="range" min="20" max="140" step="1" value="50" />
+        <div id="bubbleMsVal" class="value">50 ms</div>
+      </div>
+
+      <div class="row">
+        <label for="baseMidi">Base MIDI</label>
+        <input id="baseMidi" type="range" min="36" max="94" step="1" value="57" />
+        <div id="baseMidiVal" class="value">57</div>
       </div>
     </div>
 
-    <div id="view">
-      <div id="three"></div>
-      <div id="hud"></div>
-      <div id="outScopeWrap"><canvas id="outScope"></canvas></div>
-      <div id="scopeWrap"><canvas id="scope"></canvas></div>
+    <div class="panel">
+      <canvas id="view" width="900" height="520"></canvas>
+      <div id="hud" class="hud"></div>
     </div>
   </div>
 
-<script type="module">
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+  <script>
+    const params = {
+      pathRadius: 110,
+      pathZAmplitude: 60,
+      pathControlPoints: 24,
+      loopSeconds: 4.0,
+      eventRate: 4.0,
+      bubbleMs: 50,
+      baseMidi: 57,
+      currentPathMode: "pulse"
+    };
 
-/* -------------------- DOM refs -------------------- */
-const titleEl = document.getElementById("title");
-const hudEl = document.getElementById("hud");
-const scope = document.getElementById("scope");
-const outScope = document.getElementById("outScope");
+    let audioCtx = null;
+    let masterGain = null;
+    let isRunning = false;
+    // EN: Reusable noise source buffer for bubble grains.
+    let bubbleNoiseBuffer = null;
 
-const btnStart = document.getElementById("btnStart");
-const btnStop = document.getElementById("btnStop");
+    let currentPathPoints = [];
+    let loopPhase = 0;
+    let lastFrameTime = performance.now();
 
-const speedHzEl = document.getElementById("speedHz");
-const grainsPerLoopEl = document.getElementById("grainsPerLoop");
-const overlapEl = document.getElementById("overlap");
-const grainMsROEl = document.getElementById("grainMsRO");
-const volEl = document.getElementById("vol");
+    let schedulerTimer = null;
+    let nextEventTime = 0;
 
-const pathRadiusEl = document.getElementById("pathRadius");
-const pathJitterEl = document.getElementById("pathJitter");
-const pathZAmplitudeEl = document.getElementById("pathZAmplitude");
-const pathControlPointsEl = document.getElementById("pathControlPoints");
-const btnNewRandomPath = document.getElementById("btnNewRandomPath");
-const btnPulsePath = document.getElementById("btnPulsePath");
+    const canvas = document.getElementById("view");
+    const g = canvas.getContext("2d");
+    const hudEl = document.getElementById("hud");
 
-const speedVal = document.getElementById("speedVal");
-const gplVal = document.getElementById("gplVal");
-const ovVal = document.getElementById("ovVal");
-const grainMsVal = document.getElementById("grainMsVal");
-const volVal = document.getElementById("volVal");
-const rVal = document.getElementById("rVal");
-const jVal = document.getElementById("jVal");
-const zVal = document.getElementById("zVal");
-const mVal = document.getElementById("mVal");
+    const pathRadiusEl = document.getElementById("pathRadius");
+    const pathZAmplitudeEl = document.getElementById("pathZAmplitude");
+    const pathControlPointsEl = document.getElementById("pathControlPoints");
+    const loopSecondsEl = document.getElementById("loopSeconds");
+    const eventRateEl = document.getElementById("eventRate");
+    const bubbleMsEl = document.getElementById("bubbleMs");
+    const baseMidiEl = document.getElementById("baseMidi");
 
-/* -------------------- params (UI -> engines) -------------------- */
-// EN: Single source of truth for parameters. UI writes here; engines read here.
-const params = {
-  speedHz: +speedHzEl.value,
-  volume: +volEl.value,
+    const pathRadiusVal = document.getElementById("pathRadiusVal");
+    const pathZAmplitudeVal = document.getElementById("pathZAmplitudeVal");
+    const pathControlPointsVal = document.getElementById("pathControlPointsVal");
+    const loopSecondsVal = document.getElementById("loopSecondsVal");
+    const eventRateVal = document.getElementById("eventRateVal");
+    const bubbleMsVal = document.getElementById("bubbleMsVal");
+    const baseMidiVal = document.getElementById("baseMidiVal");
 
-  // Path
-  pathRadius: +pathRadiusEl.value,
-  pathJitter: +pathJitterEl.value,
-  pathZAmplitude: +pathZAmplitudeEl.value,
-  pathControlPoints: Math.max(4, Math.floor(+pathControlPointsEl.value)),
+    document.getElementById("btnStart").addEventListener("click", startAudio);
+    document.getElementById("btnStop").addEventListener("click", stopAudio);
+    document.getElementById("btnRandomPath").addEventListener("click", () => {
+      params.currentPathMode = "random";
+      rebuildPath();
+    });
+    document.getElementById("btnPulsePath").addEventListener("click", () => {
+      params.currentPathMode = "pulse";
+      rebuildPath();
+    });
 
-  // Granular
-  sourceLen: 4000,        // EN: 3D curve sampled into this many points
-  grainsPerLoop: +grainsPerLoopEl.value, // EN: grains scheduled per one source cycle
-  overlap: +overlapEl.value,  // EN: 0..0.85 (hop = (1-overlap)*grainLen)
-  sourceMaxUpdateHz: 5 // EN: cap source buffer recompute frequency
-};
+    pathRadiusEl.addEventListener("input", syncParamsFromUI);
+    pathZAmplitudeEl.addEventListener("input", syncParamsFromUI);
+    pathControlPointsEl.addEventListener("input", syncParamsFromUI);
+    loopSecondsEl.addEventListener("input", syncParamsFromUI);
+    eventRateEl.addEventListener("input", syncParamsFromUI);
+    bubbleMsEl.addEventListener("input", syncParamsFromUI);
+    baseMidiEl.addEventListener("input", syncParamsFromUI);
 
-function updateLabels(derivedGrainMs = null) {
-  speedVal.textContent = params.speedHz.toFixed(2);
-  gplVal.textContent = params.grainsPerLoop.toFixed(1);
-  ovVal.textContent = params.overlap.toFixed(2);
-  volVal.textContent = params.volume.toFixed(3);
+    function syncParamsFromUI() {
+      params.pathRadius = +pathRadiusEl.value;
+      params.pathZAmplitude = +pathZAmplitudeEl.value;
+      params.pathControlPoints = Math.max(8, Math.floor(+pathControlPointsEl.value));
+      params.loopSeconds = +loopSecondsEl.value;
+      params.eventRate = +eventRateEl.value;
+      params.bubbleMs = +bubbleMsEl.value;
+      params.baseMidi = +baseMidiEl.value;
 
-  // EN: Show the derived grain length (ms) even though the control is in grains/loop.
-  const ms = (derivedGrainMs != null) ? derivedGrainMs : 0;
-  grainMsVal.textContent = ms ? ms.toFixed(1) : "—";
-  if (ms) grainMsROEl.value = Math.max(1, Math.min(250, ms));
+      pathRadiusVal.textContent = String(params.pathRadius);
+      pathZAmplitudeVal.textContent = String(params.pathZAmplitude);
+      pathControlPointsVal.textContent = String(params.pathControlPoints);
+      loopSecondsVal.textContent = params.loopSeconds.toFixed(1) + " s";
+      eventRateVal.textContent = params.eventRate.toFixed(1);
+      bubbleMsVal.textContent = params.bubbleMs.toFixed(0) + " ms";
+      baseMidiVal.textContent = String(params.baseMidi);
 
-  rVal.textContent = params.pathRadius.toFixed(1);
-  jVal.textContent = params.pathJitter.toFixed(1);
-  zVal.textContent = params.pathZAmplitude.toFixed(1);
-  mVal.textContent = String(params.pathControlPoints);
-}
+      rebuildPath();
+    }
 
-/* -------------------- Three.js visualization -------------------- */
-const container = document.getElementById("three");
-const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
-container.appendChild(renderer.domElement);
-renderer.domElement.style.width = '100%';
-renderer.domElement.style.height = '100%'; // EN: ensure canvas fills container
+    // EN: Wrap angle to [-PI, PI] so the pulse stays symmetric around its center.
+    function wrapToPi(a) {
+      let x = (a + Math.PI) % (Math.PI * 2);
+      if (x < 0) x += Math.PI * 2;
+      return x - Math.PI;
+    }
 
+    // EN: Ricker / Mexican-hat pulse; symmetric and approximately DC-neutral.
+    function ricker(t, sigma) {
+      const s2 = sigma * sigma;
+      const u2 = (t * t) / s2;
+      return (1 - u2) * Math.exp(-0.5 * u2);
+    }
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0d10);
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
 
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
-camera.position.set(0, 10, 85);
-camera.lookAt(0, 6, 0);
+    // EN: Pulse path uses constant angular speed in the XY plane.
+    function buildPulsePathPoints() {
+      const pts = [];
+      const N = Math.max(64, params.pathControlPoints * 4);
+      const R = params.pathRadius;
+      const Z = params.pathZAmplitude;
+      const centerA = Math.PI / 2;
+      const sigma = 0.22;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-dl.position.set(20, 30, 40);
-scene.add(dl);
+      for (let i = 0; i < N; i++) {
+        const u = i / N;
+        const a = u * Math.PI * 2;
 
-let curve = null;
-let curveLine = null;
+        const x = Math.cos(a) * R;
+        const y = Math.sin(a) * R;
+        const z = Z * ricker(wrapToPi(a - centerA), sigma);
 
-// EN: Wrap angle to [-PI, PI] so "distance around circle" is symmetric.
-function wrapToPi(a) {
-  let x = (a + Math.PI) % (Math.PI * 2);
-  if (x < 0) x += Math.PI * 2;
-  return x - Math.PI;
-}
+        pts.push({ x, y, z, u });
+      }
+      return pts;
+    }
 
-// EN: Ricker (Mexican hat) wavelet: symmetric and DC-neutral.
-function ricker(t, sigma) {
-  const s2 = sigma * sigma;
-  const u2 = (t * t) / s2;
-  return (1 - u2) * Math.exp(-0.5 * u2);
-}
+  function buildRandomPathPoints() {
+    const pts = [];
+    const N = Math.max(48, params.pathControlPoints * 4);
+    const R = params.pathRadius;
 
-// EN: Desired path: perfect circle in XY + DC-neutral symmetric pulse in Z.
-function buildPulseCurve() {
-  // EN: For the pulse shape we want enough points so the spline does not distort symmetry.
-  // The UI "Control points" still affects it, but we enforce a sensible minimum.
-  const M = Math.max(64, params.pathControlPoints);
+    // EN: Random phases for smooth but not overly circular radial variation.
+    const p1 = Math.random() * Math.PI * 2;
+    const p2 = Math.random() * Math.PI * 2;
+    const p3 = Math.random() * Math.PI * 2;
+    const p4 = Math.random() * Math.PI * 2;
 
-  const R = params.pathRadius;
-  const Z = params.pathZAmplitude;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
 
-  // EN: Pulse width in radians. Smaller => narrower / shorter pulse.
-  const sigma = 0.28;
+      // EN: Moderate multi-band radial modulation:
+      // EN: smoother than jagged point-random, but less circular than the previous version.
+      const rMod =
+        1.0
+        + 0.22 * Math.sin(2 * a + p1)
+        + 0.14 * Math.sin(3 * a + p2)
+        + 0.09 * Math.sin(5 * a + p3)
+        + 0.05 * Math.sin(7 * a + p4);
 
-  // EN: Place pulse at 90 degrees (PI/2) so it sits visually near the middle (+Y direction).
-  const centerA = Math.PI / 2;
+      const x = Math.cos(a) * R * rMod;
+      const y = Math.sin(a) * R * rMod;
 
-  const pts = [];
-  for (let i = 0; i < M; i++) {
-    const a = (i / M) * Math.PI * 2;
+      // EN: Smooth Z variation with a bit more structure.
+      const z =
+        params.pathZAmplitude * (
+          0.42 * Math.sin(a + p2) +
+          0.24 * Math.sin(3 * a + p3) +
+          0.10 * Math.sin(5 * a + p4)
+        );
 
-    // Base circle in XY
-    const x = Math.cos(a) * R;
-    const y = Math.sin(a) * R;
+      pts.push({ x, y, z, u: i / N });
+    }
 
-    // DC-neutral symmetric Z pulse (Ricker / Mexican-hat wavelet)
-    const da = wrapToPi(a - centerA);
-    const z = Z * ricker(da, sigma);
-
-    pts.push(new THREE.Vector3(x, y, z));
+    return pts;
   }
 
-  // EN: "centripetal" reduces Catmull-Rom overshoot and preserves symmetry better.
-  return new THREE.CatmullRomCurve3(pts, true, "centripetal", 0.5);
-}
+    function rebuildPath() {
+      currentPathPoints = (params.currentPathMode === "pulse")
+        ? buildPulsePathPoints()
+        : buildRandomPathPoints();
+    }
 
-function buildRandomClosedCurve() {
-  const M = params.pathControlPoints;
-  const R = params.pathRadius;
-  const J = params.pathJitter;
-  const Z = params.pathZAmplitude;
+    // EN: Sample a closed polyline path at normalized phase u in [0..1).
+    function samplePathAt(u) {
+      const pts = currentPathPoints;
+      if (!pts.length) return { x: 0, y: 0, z: 0, u: 0 };
 
-  const pts = [];
-  for (let i = 0; i < M; i++) {
-    const a = (i / M) * Math.PI * 2;
-    const x = Math.cos(a) * R + (Math.random() * 2 - 1) * J;
-    const y = Math.sin(a) * R + (Math.random() * 2 - 1) * J;
-    const z = (Math.random() * 2 - 1) * Z;
-    pts.push(new THREE.Vector3(x, y, z));
-  }
-  return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
-}
+      const n = pts.length;
+      const f = ((u % 1) + 1) % 1 * n;
+      const i0 = Math.floor(f) % n;
+      const i1 = (i0 + 1) % n;
+      const t = f - Math.floor(f);
 
-let rotYaw = 0;
-let rotPitch = 0;
+      const a = pts[i0];
+      const b = pts[i1];
 
-// EN: Current generation mode. Sliders change params but do not regenerate until user clicks a button.
-let curveMode = "random";
+      return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+        u
+      };
+    }
 
-function rebuildCurve(mode = curveMode) {
-  curveMode = mode;
-  curve = (mode === "pulse") ? buildPulseCurve() : buildRandomClosedCurve();
-    if (curveLine) {
-    scene.remove(curveLine);
-    curveLine.geometry.dispose();
-    curveLine.material.dispose();
-    curveLine = null;
-  }
+    // EN: Create a mono white-noise buffer for short bubble/noise grains.
+      function createNoiseBuffer(ctx, duration = 0.08) {
+        const sr = ctx.sampleRate;
+        const len = Math.max(1, Math.floor(duration * sr));
+        const buf = ctx.createBuffer(1, len, sr);
+        const data = buf.getChannelData(0);
 
-  const geom = new THREE.BufferGeometry().setFromPoints(curve.getPoints(250));
-  const mat = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent:true, opacity:0.85 });
-  curveLine = new THREE.Line(geom, mat);
-  curveLine.position.y = 6; // EN: lift curve in view (avoid scope overlay)
-  scene.add(curveLine);
+        for (let i = 0; i < len; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
 
-  requestSourceRebuild();
-}
+        return buf;
+      }
 
-/* -------------------- Pointer rotation -------------------- */
-let dragging = false;
-let lastX = 0, lastY = 0;
-container.addEventListener("pointerdown", (e) => {
-  dragging = true;
-  lastX = e.clientX;
-  lastY = e.clientY;
-  container.setPointerCapture(e.pointerId);
-});
-container.addEventListener("pointerup", (e) => {
-  dragging = false;
-  container.releasePointerCapture(e.pointerId);
-});
-container.addEventListener("pointermove", (e) => {
-  if (!dragging) return;
-  const dx = e.clientX - lastX;
-  const dy = e.clientY - lastY;
-  lastX = e.clientX;
-  lastY = e.clientY;
+    // EN: Trigger one short bubble-like synth grain.
+ // EN: Trigger one short bubble-like grain using a sine core + filtered noise layer.
+  // EN: Old pure-noise version is kept commented below for rollback.
+  function triggerBubbleGrain(ctx, when, opts = {}) {
+    const freq = opts.freq ?? 440;
+    const duration = opts.duration ?? 0.05;
+    const gainAmount = opts.gain ?? 0.08;
+    const pan = opts.pan ?? 0;
 
-  rotYaw += dx * 0.006;
-  rotPitch += dy * 0.006;
+    const osc = ctx.createOscillator();
+    const noise = ctx.createBufferSource();
 
-  // EN: Source depends on rotation -> request slow rebuild (capped).
-  requestSourceRebuild();
-});
+    const toneGain = ctx.createGain();
+    const noiseGain = ctx.createGain();
+    const sumGain = ctx.createGain();
 
-/* -------------------- Source buffer from 3D curve (slow) -------------------- */
-let sourceY = new Float32Array(params.sourceLen);
-let lastSourceBuildAt = 0;
-let sourceDirty = true;
+    const panner = ctx.createStereoPanner();
 
-function requestSourceRebuild() {
-  sourceDirty = true;
-}
+    const toneFilter = ctx.createBiquadFilter();
+    const noiseFilter = ctx.createBiquadFilter();
 
-function rebuildSourceIfDue(nowMs) {
-  if (!sourceDirty || !curve) return;
+    // EN: Apply a smoother grain window to avoid clicks at grain start/end.
+    const attack = Math.min(0.012, duration * 0.25);
+    const release = Math.min(0.018, duration * 0.35);
+    const sustainEnd = Math.max(when + attack, when + duration - release);
 
-  const minIntervalMs = 1000 / Math.max(0.2, params.sourceMaxUpdateHz);
-  if (nowMs - lastSourceBuildAt < minIntervalMs) return;
+    // EN: Main resonant tone layer (gives the bubble a pitch center)
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq * 1.12, when);
+    osc.frequency.exponentialRampToValueAtTime(freq, when + duration * 0.9);
 
-  lastSourceBuildAt = nowMs;
-  sourceDirty = false;
+    toneFilter.type = "bandpass";
+    toneFilter.frequency.setValueAtTime(Math.max(180, freq * 1.4), when);
+    toneFilter.Q.setValueAtTime(4.5, when);
 
-  const euler = new THREE.Euler(rotPitch, rotYaw, 0, "XYZ");
-  const N = params.sourceLen;
-  let maxAbs = 1e-9;
+    toneGain.gain.cancelScheduledValues(when); 
+    toneGain.gain.setValueAtTime(0.0, when);
+    toneGain.gain.linearRampToValueAtTime(gainAmount, when + attack);
+    toneGain.gain.linearRampToValueAtTime(gainAmount * 0.75, sustainEnd);
+    toneGain.gain.linearRampToValueAtTime(0.0, when + duration);
 
-  for (let i = 0; i < N; i++) {
-    const u = i / N;
-    const p = curve.getPointAt(u);
-    p.applyEuler(euler);
-    const y = p.y;
-    sourceY[i] = y;
-    const a = Math.abs(y);
-    if (a > maxAbs) maxAbs = a;
-  }
+    // EN: Quiet filtered noise layer adds a soft airy edge without turning into snare noise
+    noise.buffer = bubbleNoiseBuffer;
+    noise.playbackRate.setValueAtTime(1.0, when);
 
-  // EN: Normalize source to [-1, 1] for stable gain staging.
-  const inv = 1 / maxAbs;
-  for (let i = 0; i < N; i++) sourceY[i] *= inv;
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.setValueAtTime(Math.max(300, freq * 2.5), when);
+    noiseFilter.Q.setValueAtTime(1.8, when);
 
-  drawSourceWaveform();
-  drawOutputWaveform();
-}
+    noiseGain.gain.cancelScheduledValues(when);
+    noiseGain.gain.setValueAtTime(0.0, when);
+    noiseGain.gain.linearRampToValueAtTime(gainAmount * 0.10, when + attack);
+    noiseGain.gain.linearRampToValueAtTime(gainAmount * 0.06, sustainEnd);
+    noiseGain.gain.linearRampToValueAtTime(0.0, when + duration);
 
-/* -------------------- Scope drawing (source) -------------------- */
-const sctx = scope.getContext("2d");
-const octx = outScope.getContext("2d");
+    sumGain.gain.setValueAtTime(1.0, when);
+    panner.pan.setValueAtTime(pan, when);
 
-function resizeScope() {
-  const dpr = Math.min(2, devicePixelRatio || 1);
+    osc.connect(toneFilter);
+    toneFilter.connect(toneGain);
+    toneGain.connect(sumGain);
 
-  const r1 = outScope.getBoundingClientRect();
-  outScope.width = Math.max(1, Math.floor(r1.width * dpr));
-  outScope.height = Math.max(1, Math.floor(r1.height * dpr));
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(sumGain);
 
-  const r2 = scope.getBoundingClientRect();
-  scope.width = Math.max(1, Math.floor(r2.width * dpr));
-  scope.height = Math.max(1, Math.floor(r2.height * dpr));
-}
-window.addEventListener("resize", () => { resizeAll(); });
+    sumGain.connect(panner);
+    panner.connect(masterGain);
 
-function drawSourceWaveform() {
-  if (!sctx) return;
+    osc.start(when);
+    noise.start(when);
 
-  const w = scope.width;
-  const h = scope.height;
+    osc.stop(when + duration + 0.01);
+    noise.stop(when + duration + 0.01);
 
-  sctx.clearRect(0, 0, w, h);
-
-  // Background grid
-  sctx.globalAlpha = 1;
-  sctx.lineWidth = 1;
-  sctx.strokeStyle = "rgba(255,255,255,0.08)";
-  for (let i = 1; i < 8; i++) {
-    const x = (i / 8) * w;
-    sctx.beginPath();
-    sctx.moveTo(x, 0);
-    sctx.lineTo(x, h);
-    sctx.stroke();
-  }
-  for (let i = 1; i < 4; i++) {
-    const y = (i / 4) * h;
-    sctx.beginPath();
-    sctx.moveTo(0, y);
-    sctx.lineTo(w, y);
-    sctx.stroke();
+    /*
+    // EN: Previous pure-noise version kept for rollback.
+    const noiseOnly = ctx.createBufferSource();
+    const amp = ctx.createGain();
+    const noisePanner = ctx.createStereoPanner();
+    const filter = ctx.createBiquadFilter();
+  
+    noiseOnly.buffer = bubbleNoiseBuffer;
+    noiseOnly.playbackRate.setValueAtTime(1.0, when);
+  
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(Math.max(180, freq * 2.2), when);
+    filter.Q.setValueAtTime(5.0, when);
+  
+    amp.gain.setValueAtTime(0.0001, when);
+    amp.gain.exponentialRampToValueAtTime(gainAmount, when + 0.004);
+    amp.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+  
+    noisePanner.pan.setValueAtTime(pan, when);
+  
+    noiseOnly.connect(filter);
+    filter.connect(amp);
+    amp.connect(noisePanner);
+    noisePanner.connect(masterGain);
+  
+    noiseOnly.start(when);
+    noiseOnly.stop(when + duration + 0.01);
+    */
   }
 
-  // Wave
-  sctx.strokeStyle = "rgba(190, 235, 255, 0.95)";
-  sctx.lineWidth = 2;
-
-  const N = sourceY.length;
-  sctx.beginPath();
-  for (let x = 0; x < w; x++) {
-    const t = x / (w - 1);
-    const idx = t * (N - 1);
-    const i0 = Math.floor(idx);
-    const i1 = Math.min(N - 1, i0 + 1);
-    const a = idx - i0;
-    const yv = sourceY[i0] * (1 - a) + sourceY[i1] * a;
-
-    const yy = (0.5 - 0.45 * yv) * h;
-    if (x === 0) sctx.moveTo(x, yy);
-    else sctx.lineTo(x, yy);
-  }
-  sctx.stroke();
-
-  // Centerline
-  sctx.strokeStyle = "rgba(255,255,255,0.12)";
-  sctx.lineWidth = 1;
-  sctx.beginPath();
-  sctx.moveTo(0, h * 0.5);
-  sctx.lineTo(w, h * 0.5);
-  sctx.stroke();
-}
-
-
-function drawOutputWaveform() {
-  if (!octx) return;
-
-  const w = outScope.width;
-  const h = outScope.height;
-
-  octx.clearRect(0, 0, w, h);
-
-  // EN: Light grid + centerline
-  octx.lineWidth = 1;
-  octx.strokeStyle = "rgba(255,255,255,0.08)";
-  for (let i = 1; i < 8; i++) {
-    const x = (i / 8) * w;
-    octx.beginPath();
-    octx.moveTo(x, 0);
-    octx.lineTo(x, h);
-    octx.stroke();
-  }
-  octx.strokeStyle = "rgba(255,255,255,0.12)";
-  octx.beginPath();
-  octx.moveTo(0, h * 0.5);
-  octx.lineTo(w, h * 0.5);
-  octx.stroke();
-
-  if (!ctx || !analyser || !outTimeData) return;
-
-  analyser.getFloatTimeDomainData(outTimeData);
-
-  // EN: Soft autoscale for readability (not a true meter).
-  let maxAbs = 1e-6;
-  for (let i = 0; i < outTimeData.length; i++) {
-    const a = Math.abs(outTimeData[i]);
-    if (a > maxAbs) maxAbs = a;
-  }
-  const inv = 1 / maxAbs;
-
-  octx.strokeStyle = "rgba(255, 220, 190, 0.95)";
-  octx.lineWidth = 2;
-
-  octx.beginPath();
-  const N = outTimeData.length;
-  for (let x = 0; x < w; x++) {
-    const t = x / (w - 1);
-    const idx = t * (N - 1);
-    const i0 = Math.floor(idx);
-    const i1 = Math.min(N - 1, i0 + 1);
-    const a = idx - i0;
-    const yv = outTimeData[i0] * (1 - a) + outTimeData[i1] * a;
-
-    const yy = (0.5 - 0.45 * (yv * inv)) * h;
-    if (x === 0) octx.moveTo(x, yy);
-    else octx.lineTo(x, yy);
-  }
-  octx.stroke();
-
-  const winSec = N / ctx.sampleRate;
-  octx.fillStyle = "rgba(255,255,255,0.75)";
-  octx.font = `${Math.max(10, Math.floor(h * 0.18))}px ui-sans-serif, system-ui`;
-  octx.fillText(`output ~${(winSec * 1000).toFixed(0)} ms`, 10, Math.max(14, Math.floor(h * 0.22)));
-}
-
-/* -------------------- Granular audio engine -------------------- */
-let ctx = null;
-let masterGain = null;
-let analyser = null; // EN: tap post-master output for waveform display
-let outTimeData = null; // EN: analyser.getFloatTimeDomainData target
-
-let isOn = false;
-let schedulerTimer = null;
-let nextGrainTime = 0;
-let uPhase = 0; // EN: source phase in cycles (0..1 wraps)
-
-/**
- * EN: Sample the source buffer with wrap + linear interpolation.
- * u is in "cycles" (0..1), wrap automatically.
- */
-function sampleSource(u) {
-  const N = sourceY.length;
-  let uu = u % 1;
-  if (uu < 0) uu += 1;
-
-  const f = uu * (N - 1);
-  const i0 = Math.floor(f);
-  const i1 = (i0 + 1) % N;
-  const a = f - i0;
-  return sourceY[i0] * (1 - a) + sourceY[i1] * a;
-}
-
-/**
- * EN: Create one grain buffer (mono) using Hann window.
- */
-function makeGrainBuffer(grainLen, sampleRate, startPhase, speedHz) {
-  const buf = ctx.createBuffer(1, grainLen, sampleRate);
-  const ch = buf.getChannelData(0);
-
-  // EN: Convert speed (cycles/sec) to phase increment per sample.
-  const du = speedHz / sampleRate;
-
-  // EN: Hann window for smooth overlap-add.
-  const invN = 1 / Math.max(1, (grainLen - 1));
-  for (let i = 0; i < grainLen; i++) {
-    const u = startPhase + i * du;
-    const y = sampleSource(u);
-
-    const t = i * invN;
-    const win = 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
-    ch[i] = y * win;
-  }
-  return buf;
-}
-
-function ensureAudio() {
-  if (ctx) return;
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-  masterGain = ctx.createGain();
-  masterGain.gain.value = params.volume;
-
-  // EN: Insert an AnalyserNode in the output chain so we can draw the actual output waveform.
-  analyser = ctx.createAnalyser();
-  analyser.fftSize = 16384; // EN: larger = longer visible time window
-  outTimeData = new Float32Array(analyser.fftSize);
-
-  masterGain.connect(analyser);
-  analyser.connect(ctx.destination);
-}
-
-function startAudio() {
-  ensureAudio();
-  if (!curve) rebuildCurve(curveMode);
-
-  isOn = true;
-  uPhase = 0;
-  nextGrainTime = ctx.currentTime + 0.05;
-
-  // EN: Schedule with small lookahead to avoid glitches.
-  if (schedulerTimer) clearInterval(schedulerTimer);
-  schedulerTimer = setInterval(schedulerTick, 25);
-}
-
-function stopAudio() {
-  isOn = false;
-  if (schedulerTimer) clearInterval(schedulerTimer);
-  schedulerTimer = null;
-}
-
-
-function computeDerivedGrain(sr) {
-  // EN: Convert musical control (grains/loop) to hop and grain length.
-  // loopDurationSec = 1 / speedHz (one full source cycle)
-  // hopSec = loopDurationSec / grainsPerLoop
-  // grainLenSec = hopSec / (1 - overlap)
-  const speedHz = Math.max(0.001, params.speedHz);
-  const gpl = Math.max(0.2, params.grainsPerLoop);
-  const ov = Math.min(0.85, Math.max(0.0, params.overlap));
-
-  const loopSec = 1 / speedHz;
-  const hopSec = loopSec / gpl;
-  const grainSec = hopSec / Math.max(0.05, (1 - ov)); // EN: guard against ov->1
-
-  const grainLen = Math.max(64, Math.floor(grainSec * sr));
-  const hopLen = Math.max(1, Math.floor(hopSec * sr));
-
-  return { grainLen, hopLen, grainMs: (grainLen / sr) * 1000, hopMs: (hopLen / sr) * 1000 };
-}
-
-function schedulerTick() {
-  if (!isOn || !ctx) return;
-
-  // EN: Slow source rebuild capped at max 5 Hz.
-  rebuildSourceIfDue(performance.now());
-
-  const sr = ctx.sampleRate;
-  const d = computeDerivedGrain(sr);
-  const grainLen = d.grainLen;
-  const hopLen = d.hopLen;
-  const hopSec = hopLen / sr;
-
-  // EN: Keep UI in sync with the derived grain length.
-  updateLabels(d.grainMs);
-
-  const lookaheadSec = 0.15;
-
-  while (nextGrainTime < ctx.currentTime + lookaheadSec) {
-    const buf = makeGrainBuffer(grainLen, sr, uPhase, params.speedHz);
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-
-    const g = ctx.createGain();
-    g.gain.value = 1.0;
-
-    src.connect(g);
-    g.connect(masterGain);
-
-    src.start(nextGrainTime);
-
-    // EN: Advance source phase by hop size.
-    const du = params.speedHz / sr;
-    uPhase += hopLen * du;
-
-    nextGrainTime += hopSec;
-  }
-}
-
-/* -------------------- UI events -------------------- */
-btnStart.onclick = async () => {
-  ensureAudio();
-  await ctx.resume();
-  startAudio();
-};
-
-btnStop.onclick = () => {
-  stopAudio();
-};
-
-speedHzEl.oninput = () => {
-  params.speedHz = +speedHzEl.value;
-  updateLabels(computeDerivedGrain(48000).grainMs);
-};
-
-grainsPerLoopEl.oninput = () => {
-  params.grainsPerLoop = +grainsPerLoopEl.value;
-
-  // EN: Update labels using a best-effort sample rate when audio is off.
-  const sr = ctx ? ctx.sampleRate : 48000;
-  const d = computeDerivedGrain(sr);
-  updateLabels(d.grainMs);
-};
-
-overlapEl.oninput = () => {
-  params.overlap = +overlapEl.value;
-
-  const sr = ctx ? ctx.sampleRate : 48000;
-  const d = computeDerivedGrain(sr);
-  updateLabels(d.grainMs);
-};
-
-
-volEl.oninput = () => {
-  params.volume = +volEl.value;
-  updateLabels();
-  if (masterGain && ctx) masterGain.gain.setTargetAtTime(params.volume, ctx.currentTime, 0.03);
-};
-
-function schedulePathRebuild() {
-  params.pathRadius = +pathRadiusEl.value;
-  params.pathJitter = +pathJitterEl.value;
-  params.pathZAmplitude = +pathZAmplitudeEl.value;
-  params.pathControlPoints = Math.max(4, Math.floor(+pathControlPointsEl.value));
-  updateLabels();
-
-  // EN: Do NOT rebuild the curve on slider moves.
-  // Changes apply only when user clicks a "Gen ..." button.
-}
-
-pathRadiusEl.oninput = schedulePathRebuild;
-pathJitterEl.oninput = schedulePathRebuild;
-pathZAmplitudeEl.oninput = schedulePathRebuild;
-pathControlPointsEl.oninput = schedulePathRebuild;
-
-btnNewRandomPath.onclick = () => rebuildCurve("random");
-
-btnPulsePath.onclick = () => rebuildCurve("pulse");
-
-/* -------------------- Resize + loop -------------------- */
-function resizeAll() {
-  const rect = container.getBoundingClientRect();
-  renderer.setSize(rect.width, rect.height, true);
-  camera.aspect = rect.width / Math.max(1, rect.height);
-  camera.updateProjectionMatrix();
-  resizeScope();
-  drawSourceWaveform();
-  drawOutputWaveform();
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-
-  // EN: Keep source buffer fresh (capped) even when audio is off, so scope stays updated.
-  rebuildSourceIfDue(performance.now());
-
-  if (curveLine) {
-    curveLine.rotation.y = rotYaw;
-    curveLine.rotation.x = rotPitch;
+    // EN: Trigger a simple 3-note chord with one grain per channel/voice.
+    function triggerBubbleTriad(ctx, when, baseFreq, panCenter) {
+      const ratios = [1.0, 1.25, 1.5];
+      const pans = [
+        Math.max(-1, panCenter - 0.45),
+        panCenter,
+        Math.min(1, panCenter + 0.45)
+      ];
+
+      for (let i = 0; i < 3; i++) {
+        triggerBubbleGrain(ctx, when, {
+          freq: baseFreq * ratios[i],
+          duration: params.bubbleMs / 1000,
+          gain: 0.5,
+          pan: pans[i]
+        });
+      }
+    }
+
+    // EN: Map path position to musical control values.
+    function pathToEventControl(p) {
+      const angle = Math.atan2(p.y, p.x);
+      const pan = Math.max(-1, Math.min(1, p.x / Math.max(1, params.pathRadius)));
+
+      // EN: Map z to a pitch offset in semitones around the base MIDI note.
+      const zNorm = params.pathZAmplitude > 0 ? (p.z / params.pathZAmplitude) : 0;
+      const midi = params.baseMidi + zNorm * 7.0;
+      const baseFreq = midiToFreq(midi);
+
+      return { angle, pan, baseFreq };
+    }
+
+  function startAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.8;
+      masterGain.connect(audioCtx.destination);
+    }
+
+    if (!bubbleNoiseBuffer) {
+      // EN: Prebuild one reusable white-noise buffer for bubble events.
+      bubbleNoiseBuffer = createNoiseBuffer(audioCtx, 0.08);
+    }
+
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+
+    if (isRunning) return;
+    isRunning = true;
+
+    nextEventTime = audioCtx.currentTime + 0.05;
+    startScheduler();
   }
 
-    const sr = ctx ? ctx.sampleRate : 0;
-  const d = (sr ? computeDerivedGrain(sr) : null);
-  hudEl.textContent =
-`granular v2.5.2
-freqHz=${params.speedHz.toFixed(2)}  volume=${params.volume.toFixed(3)}
-grainsPerLoop=${params.grainsPerLoop.toFixed(1)}  overlap=${params.overlap.toFixed(2)}
-grain≈${d ? d.grainMs.toFixed(1) : "—"}ms  hop≈${d ? d.hopMs.toFixed(1) : "—"}ms
-sourceLen=${params.sourceLen}  sourceUpd<=${params.sourceMaxUpdateHz}/s
-audioSR=${sr}`;
+    function stopAudio() {
+      isRunning = false;
+      stopScheduler();
+    }
 
-  drawOutputWaveform();
+    function startScheduler() {
+      stopScheduler();
 
-  renderer.render(scene, camera);
-}
+      schedulerTimer = setInterval(() => {
+        if (!audioCtx || !isRunning) return;
 
-titleEl.textContent = document.title;
-updateLabels();
-rebuildCurve("random");
-resizeAll();
-animate();
-</script>
+        const lookAhead = 0.1;
+        while (nextEventTime < audioCtx.currentTime + lookAhead) {
+          const u = (nextEventTime / params.loopSeconds) % 1;
+          const p = samplePathAt(u);
+          const c = pathToEventControl(p);
+
+          triggerBubbleTriad(audioCtx, nextEventTime, c.baseFreq, c.pan);
+          nextEventTime += 1 / Math.max(0.1, params.eventRate);
+        }
+      }, 25);
+    }
+
+    function stopScheduler() {
+      if (schedulerTimer) {
+        clearInterval(schedulerTimer);
+        schedulerTimer = null;
+      }
+    }
+
+    function draw() {
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      // EN: View projection parameters (local to draw to avoid scope issues)
+      const viewTiltX = 0.72;
+      const viewTiltY = 0.38;
+      const viewLiftY = 0.48;
+      const viewZGain = 2.2;
+      const cx = canvas.width * 0.5;
+      const cy = canvas.height * 0.5;
+      const scale = 1.7;
+
+      g.lineWidth = 2;
+      g.strokeStyle = "#2b5d8e";
+      g.beginPath();
+
+      for (let i = 0; i < currentPathPoints.length; i++) {
+        const p = currentPathPoints[i];
+        // EN: Simple tilted projection so Z depth is more visible on screen.
+        const viewTiltX = 0.72;   // how much X stays horizontal
+        const viewTiltY = 0.38;   // how much Y contributes sideways
+        const viewLiftY = 0.55;   // how much Y contributes vertically
+        const viewZGain = 1.8;    // how strongly Z is shown vertically
+
+        const sx = cx + (p.x * viewTiltX + p.y * viewTiltY) * scale; // EN: Same tilted projection for the path points.
+        const sy = cy - (p.y * viewLiftY + p.z * viewZGain) * scale;
+        if (i === 0) g.moveTo(sx, sy);
+        else g.lineTo(sx, sy);
+      }
+      g.closePath();
+      g.stroke();
+
+      const tNow = performance.now() * 0.001;
+      loopPhase = (tNow / params.loopSeconds) % 1;
+      const pNow = samplePathAt(loopPhase);
+
+      const sx = cx + (pNow.x * viewTiltX + pNow.y * viewTiltY) * scale; // EN: Same projection for the current event position.
+      const sy = cy - (pNow.y * viewLiftY + pNow.z * viewZGain) * scale;
+
+      g.fillStyle = "#66aaff";
+      g.beginPath();
+      g.arc(sx, sy, 8, 0, Math.PI * 2);
+      g.fill();
+
+      const c = pathToEventControl(pNow);
+
+      hudEl.textContent =
+        `mode = ${params.currentPathMode}
+loopPhase = ${loopPhase.toFixed(3)}
+x = ${pNow.x.toFixed(1)}   y = ${pNow.y.toFixed(1)}   z = ${pNow.z.toFixed(1)}
+baseFreq = ${c.baseFreq.toFixed(1)} Hz
+pan = ${c.pan.toFixed(2)}
+eventRate = ${params.eventRate.toFixed(1)} / s
+bubble = ${params.bubbleMs.toFixed(0)} ms`;
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+
+      draw(dt);
+      requestAnimationFrame(animate);
+    }
+
+    syncParamsFromUI();
+    rebuildPath();
+    requestAnimationFrame(animate);
+  </script>
 </body>
+
 </html>
