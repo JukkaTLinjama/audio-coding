@@ -27,15 +27,15 @@
             ]
         },
         {
-            "id": "vibro-keyboard",
-            "title": "Vibroacoustic keyboard v2",
-            "path": "./Vibroacoustic/docs/vibro-keyboard-v2.8.html",
-            "thumb": "assets/vibro-keyboard-2.4.png",
+            "id": "bubble gen",
+            "title": "Bubble generator v4",
+            "path": "./Vibroacoustic/test generators/bubble-gen-v4.html",
+            "thumb": "assets/bubble-gen-v4.png",
             "status": "WIP",
-            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. ",
+            "description": "Bubble sound generator. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
             "tags": [
-                "vibro",
-                "lf",
+                "bubble sound synthesis",
+                "granular synthesis",
                 "web-audio"
             ]
         },
