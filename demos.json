@@ -29,7 +29,7 @@
         {
             "id": "bubble gen",
             "title": "Bubble generator v4",
-            "path": "./Vibroacoustic/test generators/bubble-gen-v4.html",
+            "path": "./Vibroacoustic/test-generators/bubble-gen-v4.7.html",
             "thumb": "assets/bubble-gen-v4.png",
             "status": "WIP",
             "description": "Bubble sound generator. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
@@ -42,7 +42,7 @@
         {
             "id": "loop gen v2.5",
             "title": "Loop gen v2.5",
-            "path": "Vibroacoustic/test generators/path-generator-v2.5.2-granular-gpl-overlap.html",
+            "path": "./Vibroacoustic/test-generators/path-generator-v2.5.2-granular-gpl-overlap.html",
             "thumb": "assets/Path-loop-gen-2.1.png",
             "status": "WIP",
             "description": "Sound is treated as a 1D observation of a higher-dimensional geometric system.",
