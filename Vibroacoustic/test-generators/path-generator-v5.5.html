@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Path loop gen v5.5 - triad stochastic voices API</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin:0; height:100%; background:#0b0d10; color:#e8eef7; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #app { display:grid; grid-template-columns: 320px 1fr; height:100%; }
+@media (max-width: 900px){ #app{ grid-template-columns: 300px 1fr; } }
+@media (max-width: 720px){ #app{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; } #panel{ border-right:none; border-bottom:1px solid rgba(255,255,255,.08);} }
+    #panel {
+      padding:14px 14px 10px;
+      border-right: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      overflow:auto;
+    }
+    h1 { font-size:16px; margin:0 0 10px; font-weight:650; }
+    .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
+    .row > label { flex:1; font-size:11px; opacity:.92; }
+    .row input[type="range"]{ width:100%; height:18px; }
+    .val { width:54px; text-align:right; font-variant-numeric: tabular-nums; opacity:.9; font-size:11px; }
+    button {
+      background:#1f2937; color:#e8eef7; border:1px solid rgba(255,255,255,.14);
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+    }
+    button:active { transform: translateY(1px); }
+    #view { position:relative; }
+    #three { position:absolute; inset:0; }
+    #three canvas { width:100% !important; height:100% !important; display:block; }
+    #outScopeWrap { position:absolute; left:12px; right:12px; bottom:144px; height:92px; pointer-events:none; }
+#scopeWrap { position:absolute; left:12px; right:12px; bottom:12px; height:120px; pointer-events:none; }
+    #outScope{
+      width:100%; height:100%;
+      border-radius:14px;
+      background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+#scope {
+      width:100%; height:100%;
+      border-radius:14px;
+      background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+    #hud {
+      position:absolute; left:12px; top:12px; padding:8px 10px;
+      border-radius:12px; background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+      font-size:12px; white-space:pre; font-variant-numeric: tabular-nums;
+      pointer-events:none;
+    }
+    .hint { font-size:12px; opacity:.75; line-height:1.35; margin-top:10px; }
+    .hr { height:1px; background:rgba(255,255,255,.08); margin:12px 0; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="panel">
+      <h1 id="title"></h1>
+
+      <div class="row">
+        <button id="btnStart">Start</button>
+        <button id="btnStop">Stop</button>
+      </div>
+
+      <div class="row">
+        <label>Frequency (Hz) <span class="val" id="speedVal"></span></label>
+        <input id="speedHz" type="range" min="0.20" max="60.0" step="0.10" value="2.00" />
+      </div>
+
+      <div class="row">
+        <label>Max rate <span class="val" id="maxRateVal"></span></label>
+        <input id="maxRate" type="range" min="5" max="40" step="1" value="20" />
+      </div>
+
+      <div class="row">
+        <label>Burstiness <span class="val" id="burstVal"></span></label>
+        <input id="burstiness" type="range" min="0.40" max="2.00" step="0.01" value="1.00" />
+      </div>
+
+      <div class="row">
+        <label>Overlap <span class="val" id="ovVal"></span></label>
+        <input id="overlap" type="range" min="0.00" max="0.85" step="0.01" value="0.25" />
+      </div>
+
+      <div class="row">
+        <label>Grain (ms) <span class="val" id="grainMsVal"></span></label>
+        <input id="grainMsRO" type="range" min="1" max="250" step="1" value="50" disabled />
+      </div>
+      <div class="row">
+        <label>Volume <span class="val" id="volVal"></span></label>
+        <input id="vol" type="range" min="0" max="0.95" step="0.001" value="0.72" />
+      </div>
+      <div class="row">
+        <label>Base MIDI <span class="val" id="baseMidiVal"></span></label>
+        <input id="baseMidi" type="range" min="36" max="84" step="1" value="57" />
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label>Path radius <span class="val" id="rVal"></span></label>
+        <input id="pathRadius" type="range" min="1" max="20" step="0.1" value="7" />
+      </div>
+      <div class="row">
+        <label>Path jitter <span class="val" id="jVal"></span></label>
+        <input id="pathJitter" type="range" min="0" max="10" step="0.1" value="2.2" />
+      </div>
+      <div class="row">
+        <label>Z amplitude <span class="val" id="zVal"></span></label>
+        <input id="pathZAmplitude" type="range" min="0" max="20" step="0.1" value="6" />
+      </div>
+      <div class="row">
+        <label>Control points <span class="val" id="mVal"></span></label>
+        <input id="pathControlPoints" type="range" min="4" max="40" step="1" value="9" />
+      </div>
+      <div class="row">
+        <button id="btnNewRandomPath">Gen new random path</button>
+        <button id="btnPulsePath">Gen pulse path</button>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="hint">
+        Drag to rotate the path. X = pan, Y = pitch, Z = rate (near = denser). Max rate sets the event ceiling, burstiness shapes clustering in time, and overlap controls how much consecutive bubbles overlap in time.
+      </div>
+    </div>
+
+    <div id="view">
+      <div id="three"></div>
+      <div id="hud"></div>
+      <div id="outScopeWrap"><canvas id="outScope"></canvas></div>
+      <div id="scopeWrap"><canvas id="scope"></canvas></div>
+    </div>
+  </div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+/* -------------------- DOM refs -------------------- */
+const titleEl = document.getElementById("title");
+const hudEl = document.getElementById("hud");
+const scope = document.getElementById("scope");
+const outScope = document.getElementById("outScope");
+
+const btnStart = document.getElementById("btnStart");
+const btnStop = document.getElementById("btnStop");
+
+const speedHzEl = document.getElementById("speedHz");
+const maxRateEl = document.getElementById("maxRate");
+const burstinessEl = document.getElementById("burstiness");
+const overlapEl = document.getElementById("overlap");
+const grainMsROEl = document.getElementById("grainMsRO");
+const volEl = document.getElementById("vol");
+const baseMidiEl = document.getElementById("baseMidi");
+
+const pathRadiusEl = document.getElementById("pathRadius");
+const pathJitterEl = document.getElementById("pathJitter");
+const pathZAmplitudeEl = document.getElementById("pathZAmplitude");
+const pathControlPointsEl = document.getElementById("pathControlPoints");
+const btnNewRandomPath = document.getElementById("btnNewRandomPath");
+const btnPulsePath = document.getElementById("btnPulsePath");
+
+const speedVal = document.getElementById("speedVal");
+const maxRateVal = document.getElementById("maxRateVal");
+const burstVal = document.getElementById("burstVal");
+const ovVal = document.getElementById("ovVal");
+const grainMsVal = document.getElementById("grainMsVal");
+const volVal = document.getElementById("volVal");
+const baseMidiVal = document.getElementById("baseMidiVal");
+const rVal = document.getElementById("rVal");
+const jVal = document.getElementById("jVal");
+const zVal = document.getElementById("zVal");
+const mVal = document.getElementById("mVal");
+
+/* -------------------- uiParams (UI -> engines) -------------------- */
+// EN: Single source of truth for UI/simulation parameters. UI writes here; the audio engine receives a synced copy.
+const uiParams = {
+  speedHz: +speedHzEl.value,
+  volume: +volEl.value,
+  masterVolume: +volEl.value,
+  baseMidi: +baseMidiEl.value,
+
+  // Path
+  pathRadius: +pathRadiusEl.value,
+  pathJitter: +pathJitterEl.value,
+  pathZAmplitude: +pathZAmplitudeEl.value,
+  pathControlPoints: Math.max(4, Math.floor(+pathControlPointsEl.value)),
+
+  // Granular / burst timing
+  sourceLen: 4000,        // EN: 3D curve sampled into this many points
+  maxRate: +maxRateEl.value, // EN: Max bubble trigger rate (events per second)
+  burstiness: +burstinessEl.value, // EN: Shapes time clustering without changing average rate
+  overlap: +overlapEl.value,  // EN: 0..0.85 (controls how much consecutive bubbles overlap in time)
+  sourceMaxUpdateHz: 5, // EN: cap source buffer recompute frequency
+
+  // EN: Debug values shown in HUD
+  debugDepth01: 0.5,
+  debugRate: 0
+};
+
+// EN: Bubble audio engine module section.
+// EN: This keeps the audio engine clearly separated inside the HTML file before moving it to its own JS module.
+// EN: The simulation/path layer remains below and injects control callbacks into this engine.
+const bubbleAudioEngine = (() => {
+  // EN: Local utility for the audio engine so it does not depend on outer-scope helpers.
+  function clamp(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+  }
+
+  // EN: Engine-owned UI/default parameter cache.
+  // EN: Later this same object can become the clean input boundary for a standalone JS module.
+  let uiControlParams = {
+    masterVolume: uiParams.masterVolume,
+    baseMidi: uiParams.baseMidi,
+    maxRate: uiParams.maxRate,
+    burstiness: uiParams.burstiness,
+    overlap: uiParams.overlap
+  };
+
+  // EN: External low-level control layer for technical API testing.
+  // EN: Keep this technical API as the stable low-level contract even after adding a macro API later.
+  const externalBubbleControl = {
+    rate: null,
+    depth01: null,
+    pan: null,
+    volume: 1.0,
+
+    // EN: Pitch/register control.
+    baseMidi: null,
+
+    // EN: Event timing / texture controls.
+    maxRate: null,
+    burstiness: null,
+    overlap: null
+  };
+
+  // EN: Audio runtime state. This whole block is a good candidate for a later standalone engine module.
+  let ctx = null;
+  let masterGain = null;
+  let analyser = null; // EN: Tap post-master output for waveform display/debug.
+  let outTimeData = null; // EN: analyser.getFloatTimeDomainData target buffer.
+  let bubbleNoiseBuffer = null; // EN: Reusable noise layer for bubble grains.
+
+  let isOn = false;
+  let schedulerTimer = null;
+
+  // EN: Triad voices: each voice gets its own stochastic event timeline.
+  const chordSemitones = [0, 4, 7];
+  let nextVoiceTimes = chordSemitones.map(() => 0);
+  let arpIndex = 0; // EN: Shared note-order index; timing still comes from independent voice lanes.
+
+  // EN: Simulation callbacks are injected from the HTML/simulation layer.
+  // EN: This is the key seam for later extraction into a dedicated JS module.
+  let simBridge = null;
+
+  function getContext() {
+    return ctx;
+  }
+
+  function getCurrentTime() {
+    return ctx ? ctx.currentTime : 0;
+  }
+
+  function getActiveControls() {
+    return {
+      volume: clamp(externalBubbleControl.volume ?? 1, 0, 1),
+      baseMidi: externalBubbleControl.baseMidi ?? uiControlParams.baseMidi,
+      maxRate: externalBubbleControl.maxRate ?? uiControlParams.maxRate,
+      burstiness: externalBubbleControl.burstiness ?? uiControlParams.burstiness,
+      overlap: externalBubbleControl.overlap ?? uiControlParams.overlap
+    };
+  }
+
+  function setUiParams(nextParams) {
+    // EN: Sync UI-owned defaults into the engine without changing technical API overrides.
+    uiControlParams = {
+      ...uiControlParams,
+      masterVolume: nextParams.masterVolume,
+      baseMidi: nextParams.baseMidi,
+      maxRate: nextParams.maxRate,
+      burstiness: nextParams.burstiness,
+      overlap: nextParams.overlap
+    };
+  }
+
+  function updateControl(update) {
+    Object.assign(externalBubbleControl, update);
+
+    // EN: Clamp technical API values to safe audio ranges.
+    externalBubbleControl.volume = clamp(externalBubbleControl.volume ?? 1, 0, 1);
+
+    if (externalBubbleControl.baseMidi != null) {
+      externalBubbleControl.baseMidi = clamp(externalBubbleControl.baseMidi, 36, 84);
+    }
+
+    if (externalBubbleControl.maxRate != null) {
+      externalBubbleControl.maxRate = clamp(externalBubbleControl.maxRate, 5, 40);
+    }
+
+    if (externalBubbleControl.burstiness != null) {
+      externalBubbleControl.burstiness = clamp(externalBubbleControl.burstiness, 0.4, 2.0);
+    }
+
+    if (externalBubbleControl.overlap != null) {
+      externalBubbleControl.overlap = clamp(externalBubbleControl.overlap, 0.0, 0.85);
+    }
+
+    // EN: Refresh derived readouts because technical API may change timing/overlap.
+    refreshDerivedUi();
+  }
+
+  function resetControl() {
+    externalBubbleControl.rate = null;
+    externalBubbleControl.depth01 = null;
+    externalBubbleControl.pan = null;
+    externalBubbleControl.volume = 1.0;
+    externalBubbleControl.baseMidi = null;
+    externalBubbleControl.maxRate = null;
+    externalBubbleControl.burstiness = null;
+    externalBubbleControl.overlap = null;
+
+    // EN: Restore derived readouts to current UI-controlled values.
+    refreshDerivedUi();
+  }
+
+  function createNoiseBuffer(audioCtx, durationSec = 0.12) {
+    const sr = audioCtx.sampleRate;
+    const len = Math.max(1, Math.floor(durationSec * sr));
+    const buf = audioCtx.createBuffer(1, len, sr);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+
+  function computeDerivedGrain(sr, maxRate = uiControlParams.maxRate, overlap = uiControlParams.overlap) {
+    // EN: Derive a representative bubble duration from the maximum event rate.
+    // EN: maxRate/overlap may come either from UI uiParams or from the technical API overlay.
+    const safeMaxRate = Math.max(0.1, maxRate);
+    const ov = Math.min(0.85, Math.max(0.0, overlap));
+
+    const meanIntervalSec = 1 / safeMaxRate;
+    const grainSec = meanIntervalSec / Math.max(0.05, (1 - ov)); // EN: Guard against ov->1.
+
+    const grainLen = Math.max(64, Math.floor(grainSec * sr));
+    const hopLen = Math.max(1, Math.floor(meanIntervalSec * sr));
+
+    return { grainLen, hopLen, grainMs: (grainLen / sr) * 1000, hopMs: (hopLen / sr) * 1000 };
+  }
+
+  function drawOutputWaveform() {
+    if (!octx) return;
+
+    const w = outScope.width;
+    const h = outScope.height;
+
+    octx.clearRect(0, 0, w, h);
+
+    // EN: Light grid + centerline.
+    octx.lineWidth = 1;
+    octx.strokeStyle = "rgba(255,255,255,0.08)";
+    for (let i = 1; i < 8; i++) {
+      const x = (i / 8) * w;
+      octx.beginPath();
+      octx.moveTo(x, 0);
+      octx.lineTo(x, h);
+      octx.stroke();
+    }
+    octx.strokeStyle = "rgba(255,255,255,0.12)";
+    octx.beginPath();
+    octx.moveTo(0, h * 0.5);
+    octx.lineTo(w, h * 0.5);
+    octx.stroke();
+
+    if (!ctx || !analyser || !outTimeData) return;
+
+    analyser.getFloatTimeDomainData(outTimeData);
+
+    let maxAbs = 1e-6;
+    for (let i = 0; i < outTimeData.length; i++) {
+      const a = Math.abs(outTimeData[i]);
+      if (a > maxAbs) maxAbs = a;
+    }
+    const inv = 1 / maxAbs;
+
+    octx.strokeStyle = "rgba(255, 220, 190, 0.95)";
+    octx.lineWidth = 2;
+
+    octx.beginPath();
+    const N = outTimeData.length;
+    for (let x = 0; x < w; x++) {
+      const t = x / (w - 1);
+      const idx = t * (N - 1);
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(N - 1, i0 + 1);
+      const a = idx - i0;
+      const yv = outTimeData[i0] * (1 - a) + outTimeData[i1] * a;
+
+      const yy = (0.5 - 0.45 * (yv * inv)) * h;
+      if (x === 0) octx.moveTo(x, yy);
+      else octx.lineTo(x, yy);
+    }
+    octx.stroke();
+
+    const winSec = N / ctx.sampleRate;
+    octx.fillStyle = "rgba(255,255,255,0.75)";
+    octx.font = `${Math.max(10, Math.floor(h * 0.18))}px ui-sans-serif, system-ui`;
+    octx.fillText(`output ~${(winSec * 1000).toFixed(0)} ms`, 10, Math.max(14, Math.floor(h * 0.22)));
+  }
+
+  function triggerBubbleEvent(when, duration, c) {
+    const osc = ctx.createOscillator();
+    const noise = ctx.createBufferSource();
+    const toneFilter = ctx.createBiquadFilter();
+    const noiseFilter = ctx.createBiquadFilter();
+    const toneAmp = ctx.createGain();
+    const noiseAmp = ctx.createGain();
+    const sumAmp = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+
+    const attack = Math.min(0.012, duration * 0.22);
+    const release = Math.min(0.024, duration * 0.40);
+    const sustainEnd = Math.max(when + attack, when + duration - release);
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(c.freq * 1.10, when);
+    osc.frequency.exponentialRampToValueAtTime(c.freq, when + Math.max(0.01, duration * 0.85));
+
+    noise.buffer = bubbleNoiseBuffer;
+    noise.playbackRate.setValueAtTime(1.0, when);
+
+    const size = Math.pow(Math.random(), 1.5);
+    const toneGain = 0.25 + size * 0.15;
+    const noiseGain = 0.015 + size * 0.08;
+
+    const rawAmp = 1.0;
+    const finalAmp = rawAmp * uiControlParams.masterVolume * clamp(c.volume ?? 1, 0, 1);
+
+    toneFilter.type = "bandpass";
+    toneFilter.frequency.setValueAtTime(Math.max(160, c.freq * 1.25), when);
+    toneFilter.Q.setValueAtTime(4.0, when);
+
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.setValueAtTime(Math.max(180, c.freq * 1.5), when);
+    noiseFilter.Q.setValueAtTime(3.5, when);
+
+    toneAmp.gain.setValueAtTime(0.0001, when);
+    toneAmp.gain.exponentialRampToValueAtTime(toneGain, when + attack);
+    toneAmp.gain.exponentialRampToValueAtTime(0.0001, sustainEnd + release);
+
+    noiseAmp.gain.setValueAtTime(0.0001, when);
+    noiseAmp.gain.exponentialRampToValueAtTime(noiseGain, when + attack * 0.9);
+    noiseAmp.gain.exponentialRampToValueAtTime(0.0001, sustainEnd + release * 0.9);
+
+    sumAmp.gain.setValueAtTime(0.9 * finalAmp, when);
+    panner.pan.setValueAtTime(c.pan, when);
+
+    osc.connect(toneFilter);
+    toneFilter.connect(toneAmp);
+    toneAmp.connect(sumAmp);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseAmp);
+    noiseAmp.connect(sumAmp);
+
+    sumAmp.connect(panner);
+    panner.connect(masterGain);
+
+    osc.start(when);
+    noise.start(when);
+    osc.stop(when + duration + 0.03);
+    noise.stop(when + duration + 0.03);
+
+    return c;
+  }
+
+  function ensureAudio() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    masterGain = ctx.createGain();
+    masterGain.gain.value = 1.0;
+
+    // EN: This analyser draw helper lives in the engine for now, but can later move to a debug/view module.
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 16384;
+    outTimeData = new Float32Array(analyser.fftSize);
+    bubbleNoiseBuffer = createNoiseBuffer(ctx, 0.12);
+
+    masterGain.connect(analyser);
+    analyser.connect(ctx.destination);
+  }
+
+  function scheduleNextIntervalFromRate(rate, depth01 = 0.5) {
+    // EN: This timing helper belongs to the audio engine because it defines event rhythm/texture.
+    let interval = 0.05;
+
+    if (rate > 0.001) {
+      const meanInterval = 1 / rate;
+      const ctrl = bubbleAudioEngine.getActiveControls();
+      const burstiness = clamp(ctrl.burstiness, 0.4, 2.0);
+      const depth = clamp(depth01, 0, 1);
+      const uBase = Math.max(1e-6, 1 - Math.random());
+      const poissonInterval = -Math.log(uBase) * meanInterval;
+      const denseBias = 1.0 - clamp((burstiness - 0.4) / 1.6, 0, 1);
+      const microBurstChance = 0.04 + depth * 0.24 + denseBias * 0.18;
+
+      if (Math.random() < microBurstChance) {
+        const minGap = 0.006;
+        const maxGap = Math.min(0.060, meanInterval * (0.55 - depth * 0.20));
+        const u = Math.random();
+        interval = minGap + Math.pow(u, 1.8) * Math.max(0.004, maxGap - minGap);
+      } else {
+        const shape = burstiness;
+        interval = Math.pow(poissonInterval / meanInterval, shape) * meanInterval;
+        const longGapChance = 0.03 + depth * 0.10;
+        if (Math.random() < longGapChance) interval *= 1.4 + Math.random() * 2.2;
+      }
+
+      interval = clamp(interval, 0.006, 2.5);
+    }
+
+    return interval;
+  }
+
+  function schedulerTick() {
+    if (!isOn || !ctx || !simBridge) return;
+    if (!simBridge.getEventPhaseAtTime || !simBridge.sampleCurvePointAtPhase || !simBridge.pointToBubbleControl) return;
+
+    const sr = ctx.sampleRate;
+    const ctrl = bubbleAudioEngine.getActiveControls();
+    const d = computeDerivedGrain(sr, ctrl.maxRate, ctrl.overlap);
+    const baseGrainSec = d.grainLen / sr;
+    const lookaheadSec = 0.15;
+
+    for (let voiceIndex = 0; voiceIndex < chordSemitones.length; voiceIndex++) {
+      while (nextVoiceTimes[voiceIndex] < ctx.currentTime + lookaheadSec) {
+        const when = nextVoiceTimes[voiceIndex];
+        const eventPhase = simBridge.getEventPhaseAtTime(when);
+        const point = simBridge.sampleCurvePointAtPhase(eventPhase);
+        const simCtrl = simBridge.pointToBubbleControl(point);
+
+        const baseCtrl = {
+          pan: externalBubbleControl.pan ?? simCtrl.pan,
+          freq: simCtrl.freq,
+          rate: externalBubbleControl.rate ?? simCtrl.rate,
+          depth01: externalBubbleControl.depth01 ?? point.depth01,
+          volume: clamp(externalBubbleControl.volume ?? 1, 0, 1)
+        };
+
+        if (simBridge.onDebugControl) simBridge.onDebugControl(baseCtrl);
+
+        if (baseCtrl.rate > 0.001) {
+          let semitoneOffset;
+          if (Math.random() < 0.82) {
+            semitoneOffset = chordSemitones[arpIndex];
+            arpIndex = (arpIndex + 1) % chordSemitones.length;
+          } else {
+            const randomIndex = Math.floor(Math.random() * chordSemitones.length);
+            semitoneOffset = chordSemitones[randomIndex];
+          }
+
+          const voiceCtrl = {
+            pan: baseCtrl.pan,
+            freq: baseCtrl.freq * semitoneRatio(semitoneOffset),
+            rate: baseCtrl.rate,
+            volume: baseCtrl.volume
+          };
+
+          const durScale = durationScaleFromFreq(voiceCtrl.freq, ctrl.baseMidi);
+          const grainSecPitchScaled = baseGrainSec * durScale;
+          const grainSecThisEvent = clamp(grainSecPitchScaled, baseGrainSec * 0.40, baseGrainSec * 2.40);
+          triggerBubbleEvent(when, grainSecThisEvent, voiceCtrl);
+        }
+
+        nextVoiceTimes[voiceIndex] += scheduleNextIntervalFromRate(baseCtrl.rate, baseCtrl.depth01);
+      }
+    }
+  }
+
+  function startAudio(bridge) {
+    ensureAudio();
+    if (!curve) rebuildCurve(curveMode);
+    simBridge = bridge;
+    isOn = true;
+    nextVoiceTimes = chordSemitones.map(() => ctx.currentTime + 0.02 + Math.random() * 0.08);
+    if (schedulerTimer) clearInterval(schedulerTimer);
+    schedulerTimer = setInterval(schedulerTick, 25);
+  }
+
+  function stopAudio() {
+    isOn = false;
+    if (schedulerTimer) clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+
+  return {
+    getContext,
+    getCurrentTime,
+    getActiveControls,
+    setUiParams,
+    computeDerivedGrain,
+    updateControl,
+    resetControl,
+    ensureAudio,
+    startAudio,
+    stopAudio,
+    drawOutputWaveform
+  };
+})();
+
+// EN: Public global technical API kept stable for external callers.
+window.schoolAudioApi = {
+  updateControl(update) {
+    bubbleAudioEngine.updateControl(update);
+  },
+  resetControl() {
+    bubbleAudioEngine.resetControl();
+  }
+};
+
+function updateLabels(derivedGrainMs = null) {
+  speedVal.textContent = uiParams.speedHz.toFixed(2);
+  maxRateVal.textContent = uiParams.maxRate.toFixed(0);
+  burstVal.textContent = uiParams.burstiness.toFixed(2);
+  ovVal.textContent = uiParams.overlap.toFixed(2);
+  volVal.textContent = uiParams.volume.toFixed(3);
+  baseMidiVal.textContent = String(Math.round(uiParams.baseMidi));
+
+  // EN: Show the derived grain length (ms) even though the control is in grains/loop.
+  const ms = (derivedGrainMs != null) ? derivedGrainMs : 0;
+  grainMsVal.textContent = ms ? ms.toFixed(1) : "—";
+  if (ms) grainMsROEl.value = Math.max(1, Math.min(250, ms));
+
+  rVal.textContent = uiParams.pathRadius.toFixed(1);
+  jVal.textContent = uiParams.pathJitter.toFixed(1);
+  zVal.textContent = uiParams.pathZAmplitude.toFixed(1);
+  mVal.textContent = String(uiParams.pathControlPoints);
+}
+
+function refreshDerivedUi() {
+  // EN: Use real audio sample rate when available, otherwise a stable fallback.
+  // EN: Derived grain display follows active audio controls, not only raw UI slider values.
+  const audioCtx = bubbleAudioEngine.getContext();
+  const sr = audioCtx ? audioCtx.sampleRate : 48000;
+  const ctrl = bubbleAudioEngine.getActiveControls();
+  const d = bubbleAudioEngine.computeDerivedGrain(sr, ctrl.maxRate, ctrl.overlap);
+  updateLabels(d.grainMs);
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function semitoneRatio(semitones) {
+  // EN: Convert semitone offset to frequency ratio.
+  return Math.pow(2, semitones / 12);
+}
+
+function durationScaleFromFreq(freq, baseMidi) {
+  // EN: Calibrate overlap at the current base MIDI pitch.
+  // EN: Higher notes get slightly shorter events, lower notes slightly longer ones.
+  const baseFreq = midiToFreq(baseMidi);
+  const ratio = baseFreq / Math.max(40, freq);
+
+  // EN: Gentle correction only; keep it audible but not extreme.
+  return clamp(Math.pow(ratio, 0.55), 0.65, 1.75);
+}
+
+// EN: Simulation transport reference time for continuous phase tracking.
+let transportStartTime = 0;
+
+function sampleCurvePointAtPhase(u) {
+  if (!curve) {
+    return {
+      screenX: 0,
+      screenY: 0,
+      depth01: 0.5
+    };
+  }
+
+  let uu = u % 1;
+  if (uu < 0) uu += 1;
+
+  // EN: Start from the local point on the curve.
+  const localPoint = curve.getPointAt(uu).clone();
+
+  // EN: Transform to world space exactly like the visible curve group.
+  curveViewGroup.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+
+  const worldPoint = localPoint.clone().applyMatrix4(curveViewGroup.matrixWorld);
+
+  // EN: Project to normalized device coordinates for screen X/Y mapping.
+  const projected = worldPoint.clone().project(camera);
+
+  // EN: Convert to camera space for depth mapping.
+  const cameraPoint = worldPoint.clone().applyMatrix4(camera.matrixWorldInverse);
+
+  // EN: Normalize depth around the curve center so near = 1, far = 0.
+  const centerWorld = new THREE.Vector3();
+  curveViewGroup.getWorldPosition(centerWorld);
+  const centerCamera = centerWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+
+  // EN: Tighter depth normalization so depth01 uses more of the 0..1 range.
+  const depthSpan = Math.max(
+    1.5,
+    uiParams.pathZAmplitude + uiParams.pathJitter * 0.5
+  );
+
+  const depth01 = clamp(
+    0.5 + (cameraPoint.z - centerCamera.z) / (depthSpan * 2.0),
+    0,
+    1
+  );
+
+  return {
+    screenX: clamp(projected.x, -1, 1),
+    screenY: clamp(projected.y, -1, 1),
+    depth01
+  };
+}
+
+function getContinuousPhaseAtTime(t) {
+  // EN: Continuous loop motion depends only on time and speedHz, not event spacing.
+  const phase = (t - transportStartTime) * uiParams.speedHz;
+  return ((phase % 1) + 1) % 1;
+}
+
+// EN: Map one 3D point to bubble synth controls.
+function pointToBubbleControl(p) {
+  // EN: Use projected screen X/Y for pan and pitch, and camera-space depth for rate.
+  const pan = clamp(p.screenX, -1, 1);
+
+  const audioCtrl = bubbleAudioEngine.getActiveControls();
+  const midi = audioCtrl.baseMidi + clamp(p.screenY, -1, 1) * 7;
+  const freq = midiToFreq(midi);
+
+  // EN: Allow much sparser bubbles when far from camera.
+  const minRate = audioCtrl.maxRate * 0.02;
+  // EN: Expand depth contrast.
+  const depthShaped = Math.pow(p.depth01, 3.2);
+
+  const rate = minRate + depthShaped * (audioCtrl.maxRate - minRate);
+
+  return { pan, freq, rate };
+}
+
+// EN: Sync UI-side default uiParams into the audio engine.
+// EN: This is the current bridge point that will later map naturally to a separate engine module API.
+function syncUiParamsToAudioEngine() {
+  bubbleAudioEngine.setUiParams({
+    masterVolume: uiParams.masterVolume,
+    baseMidi: uiParams.baseMidi,
+    maxRate: uiParams.maxRate,
+    burstiness: uiParams.burstiness,
+    overlap: uiParams.overlap
+  });
+}
+
+/* -------------------- Three.js visualization -------------------- */
+const container = document.getElementById("three");
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+container.appendChild(renderer.domElement);
+renderer.domElement.style.width = '100%';
+renderer.domElement.style.height = '100%'; // EN: ensure canvas fills container
+
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d10);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
+camera.position.set(0, 10, 35);
+camera.lookAt(0, 6, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+dl.position.set(20, 30, 40);
+scene.add(dl);
+
+let curve = null;
+let curveLine = null;
+let curveViewGroup = null;
+let localAxesHelper = null;
+
+// EN: Group for the visualized curve and its local axes so rotation is easy to read.
+curveViewGroup = new THREE.Group();
+curveViewGroup.position.y = 6;
+scene.add(curveViewGroup);
+
+localAxesHelper = new THREE.AxesHelper(18);
+localAxesHelper.material.depthTest = false;
+localAxesHelper.renderOrder = 2;
+curveViewGroup.add(localAxesHelper);
+
+  // EN: Moving indicator showing current position on the loop.
+  const indicatorGeom = new THREE.SphereGeometry(0.7, 16, 16);
+  const indicatorMat = new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.4 });
+  const indicator = new THREE.Mesh(indicatorGeom, indicatorMat);
+  curveViewGroup.add(indicator);
+
+// EN: Wrap angle to [-PI, PI] so "distance around circle" is symmetric.
+function wrapToPi(a) {
+  let x = (a + Math.PI) % (Math.PI * 2);
+  if (x < 0) x += Math.PI * 2;
+  return x - Math.PI;
+}
+
+// EN: Ricker (Mexican hat) wavelet: symmetric and DC-neutral.
+function ricker(t, sigma) {
+  const s2 = sigma * sigma;
+  const u2 = (t * t) / s2;
+  return (1 - u2) * Math.exp(-0.5 * u2);
+}
+
+// EN: Desired path: perfect circle in XY + DC-neutral symmetric pulse in Z.
+function buildPulseCurve() {
+  // EN: For the pulse shape we want enough points so the spline does not distort symmetry.
+  // The UI "Control points" still affects it, but we enforce a sensible minimum.
+  const M = Math.max(64, uiParams.pathControlPoints);
+
+  const R = uiParams.pathRadius;
+  const Z = uiParams.pathZAmplitude;
+
+  // EN: Pulse width in radians. Smaller => narrower / shorter pulse.
+  const sigma = 0.28;
+
+  // EN: Place pulse at 90 degrees (PI/2) so it sits visually near the middle (+Y direction).
+  const centerA = Math.PI / 2;
+
+  const pts = [];
+  for (let i = 0; i < M; i++) {
+    const a = (i / M) * Math.PI * 2;
+
+    // Base circle in XY
+    const x = Math.cos(a) * R;
+    const y = Math.sin(a) * R;
+
+    // DC-neutral symmetric Z pulse (Ricker / Mexican-hat wavelet)
+    const da = wrapToPi(a - centerA);
+    const z = Z * ricker(da, sigma);
+
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+
+  // EN: "centripetal" reduces Catmull-Rom overshoot and preserves symmetry better.
+  return new THREE.CatmullRomCurve3(pts, true, "centripetal", 0.5);
+}
+
+function buildRandomClosedCurve() {
+  const M = uiParams.pathControlPoints;
+  const R = uiParams.pathRadius;
+  const J = uiParams.pathJitter;
+  const Z = uiParams.pathZAmplitude;
+
+  const pts = [];
+  for (let i = 0; i < M; i++) {
+    const a = (i / M) * Math.PI * 2;
+    const x = Math.cos(a) * R + (Math.random() * 2 - 1) * J;
+    const y = Math.sin(a) * R + (Math.random() * 2 - 1) * J;
+    const z = (Math.random() * 2 - 1) * Z;
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+}
+
+let rotYaw = 0;
+let rotPitch = 0;
+
+// EN: Current generation mode. Sliders change uiParams but do not regenerate until user clicks a button.
+let curveMode = "random";
+
+function rebuildCurve(mode = curveMode) {
+  curveMode = mode;
+  curve = (mode === "pulse") ? buildPulseCurve() : buildRandomClosedCurve();
+
+  if (curveLine) {
+    curveViewGroup.remove(curveLine);
+    curveLine.geometry.dispose();
+    curveLine.material.dispose();
+    curveLine = null;
+  }
+
+  const geom = new THREE.BufferGeometry().setFromPoints(curve.getPoints(250));
+  const mat = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent:true, opacity:0.85 });
+  curveLine = new THREE.Line(geom, mat);
+  curveViewGroup.add(curveLine);
+
+  requestSourceRebuild();
+}
+
+/* -------------------- Pointer rotation -------------------- */
+let dragging = false;
+let lastX = 0, lastY = 0;
+container.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  container.setPointerCapture(e.pointerId);
+});
+container.addEventListener("pointerup", (e) => {
+  dragging = false;
+  container.releasePointerCapture(e.pointerId);
+});
+container.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+
+  rotYaw += dx * 0.006;
+  rotPitch += dy * 0.006;
+
+  // EN: Source depends on rotation -> request slow rebuild (capped).
+  requestSourceRebuild();
+});
+
+/* -------------------- Debug projection buffer from 3D curve (slow) -------------------- */
+// EN: This buffer is kept mainly for the lower scope/debug view.
+// EN: Current audio mapping uses sampleCurvePointAtPhase(), not this buffer directly.
+let sourceY = new Float32Array(uiParams.sourceLen);
+let lastSourceBuildAt = 0;
+let sourceDirty = true;
+
+function requestSourceRebuild() {
+  sourceDirty = true;
+}
+
+function rebuildSourceIfDue(nowMs) {
+  if (!sourceDirty || !curve) return;
+
+  const minIntervalMs = 1000 / Math.max(0.2, uiParams.sourceMaxUpdateHz);
+  if (nowMs - lastSourceBuildAt < minIntervalMs) return;
+
+  lastSourceBuildAt = nowMs;
+  sourceDirty = false;
+
+  const euler = new THREE.Euler(rotPitch, rotYaw, 0, "XYZ");
+  const N = uiParams.sourceLen;
+  let maxAbs = 1e-9;
+
+  for (let i = 0; i < N; i++) {
+    const u = i / N;
+    const p = curve.getPointAt(u);
+    p.applyEuler(euler);
+    const y = p.y;
+    sourceY[i] = y;
+    const a = Math.abs(y);
+    if (a > maxAbs) maxAbs = a;
+  }
+
+  // EN: Normalize source to [-1, 1] for stable gain staging.
+  const inv = 1 / maxAbs;
+  for (let i = 0; i < N; i++) sourceY[i] *= inv;
+
+  drawSourceWaveform();
+  bubbleAudioEngine.drawOutputWaveform();
+}
+
+/* -------------------- Scope drawing (debug projection) -------------------- */
+const sctx = scope.getContext("2d");
+const octx = outScope.getContext("2d");
+
+function resizeScope() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+
+  const r1 = outScope.getBoundingClientRect();
+  outScope.width = Math.max(1, Math.floor(r1.width * dpr));
+  outScope.height = Math.max(1, Math.floor(r1.height * dpr));
+
+  const r2 = scope.getBoundingClientRect();
+  scope.width = Math.max(1, Math.floor(r2.width * dpr));
+  scope.height = Math.max(1, Math.floor(r2.height * dpr));
+}
+window.addEventListener("resize", () => { resizeAll(); });
+
+function drawSourceWaveform() {
+  if (!sctx) return;
+
+  const w = scope.width;
+  const h = scope.height;
+
+  sctx.clearRect(0, 0, w, h);
+
+  // Background grid
+  sctx.globalAlpha = 1;
+  sctx.lineWidth = 1;
+  sctx.strokeStyle = "rgba(255,255,255,0.08)";
+  for (let i = 1; i < 8; i++) {
+    const x = (i / 8) * w;
+    sctx.beginPath();
+    sctx.moveTo(x, 0);
+    sctx.lineTo(x, h);
+    sctx.stroke();
+  }
+  for (let i = 1; i < 4; i++) {
+    const y = (i / 4) * h;
+    sctx.beginPath();
+    sctx.moveTo(0, y);
+    sctx.lineTo(w, y);
+    sctx.stroke();
+  }
+
+  // Wave
+  sctx.strokeStyle = "rgba(190, 235, 255, 0.95)";
+  sctx.lineWidth = 2;
+
+  const N = sourceY.length;
+  sctx.beginPath();
+  for (let x = 0; x < w; x++) {
+    const t = x / (w - 1);
+    const idx = t * (N - 1);
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(N - 1, i0 + 1);
+    const a = idx - i0;
+    const yv = sourceY[i0] * (1 - a) + sourceY[i1] * a;
+
+    const yy = (0.5 - 0.45 * yv) * h;
+    if (x === 0) sctx.moveTo(x, yy);
+    else sctx.lineTo(x, yy);
+  }
+  sctx.stroke();
+
+  // Centerline
+  sctx.strokeStyle = "rgba(255,255,255,0.12)";
+  sctx.lineWidth = 1;
+  sctx.beginPath();
+  sctx.moveTo(0, h * 0.5);
+  sctx.lineTo(w, h * 0.5);
+  sctx.stroke();
+}
+
+
+/* -------------------- UI events -------------------- */
+btnStart.onclick = async () => {
+  bubbleAudioEngine.ensureAudio();
+  const audioCtx = bubbleAudioEngine.getContext();
+  await audioCtx.resume();
+
+  // EN: Simulation owns transportStartTime because speedHz/phase belong to the path domain, not the audio engine.
+  transportStartTime = audioCtx.currentTime;
+
+  bubbleAudioEngine.startAudio({
+    getEventPhaseAtTime: getContinuousPhaseAtTime,
+    sampleCurvePointAtPhase,
+    pointToBubbleControl,
+    onDebugControl(baseCtrl) {
+      uiParams.debugDepth01 = baseCtrl.depth01;
+      uiParams.debugRate = baseCtrl.rate;
+    }
+  });
+};
+
+btnStop.onclick = () => {
+  bubbleAudioEngine.stopAudio();
+};
+
+speedHzEl.oninput = () => {
+  uiParams.speedHz = +speedHzEl.value;
+  refreshDerivedUi();
+};
+
+maxRateEl.oninput = () => {
+  uiParams.maxRate = +maxRateEl.value;
+  syncUiParamsToAudioEngine();
+  refreshDerivedUi();
+};
+
+burstinessEl.oninput = () => {
+  uiParams.burstiness = +burstinessEl.value;
+  syncUiParamsToAudioEngine();
+  refreshDerivedUi();
+};
+
+overlapEl.oninput = () => {
+  uiParams.overlap = +overlapEl.value;
+  syncUiParamsToAudioEngine();
+  refreshDerivedUi();
+};
+
+
+volEl.oninput = () => {
+  uiParams.volume = +volEl.value;
+  uiParams.masterVolume = uiParams.volume;
+  syncUiParamsToAudioEngine();
+  refreshDerivedUi();
+};
+
+baseMidiEl.oninput = () => {
+  uiParams.baseMidi = +baseMidiEl.value;
+  syncUiParamsToAudioEngine();
+  refreshDerivedUi();
+};
+
+function applyPathUiToParams() {
+  // EN: Copy current path slider values into uiParams without rebuilding the curve yet.
+  uiParams.pathRadius = +pathRadiusEl.value;
+  uiParams.pathJitter = +pathJitterEl.value;
+  uiParams.pathZAmplitude = +pathZAmplitudeEl.value;
+  uiParams.pathControlPoints = Math.max(4, Math.floor(+pathControlPointsEl.value));
+  refreshDerivedUi();
+
+  // EN: Do NOT rebuild the curve on slider moves.
+  // Changes apply only when user clicks a "Gen ..." button.
+}
+
+pathRadiusEl.oninput = applyPathUiToParams;
+pathJitterEl.oninput = applyPathUiToParams;
+pathZAmplitudeEl.oninput = applyPathUiToParams;
+pathControlPointsEl.oninput = applyPathUiToParams;
+
+btnNewRandomPath.onclick = () => rebuildCurve("random");
+
+btnPulsePath.onclick = () => rebuildCurve("pulse");
+
+/* -------------------- Resize + loop -------------------- */
+function resizeAll() {
+  const rect = container.getBoundingClientRect();
+  renderer.setSize(rect.width, rect.height, true);
+  camera.aspect = rect.width / Math.max(1, rect.height);
+  camera.updateProjectionMatrix();
+  resizeScope();
+  drawSourceWaveform();
+  bubbleAudioEngine.drawOutputWaveform();
+}
+
+function updateHud() {
+  // EN: HUD is informational only; use audio sample rate when available.
+  const audioCtx = bubbleAudioEngine.getContext();
+  const sr = audioCtx ? audioCtx.sampleRate : 0;
+  const d = sr ? bubbleAudioEngine.computeDerivedGrain(sr) : null;
+
+  hudEl.textContent =
+`bubble API granular v5.5
+freqHz=${uiParams.speedHz.toFixed(2)}  volume=${uiParams.volume.toFixed(3)}  baseMidi=${uiParams.baseMidi.toFixed(0)}
+maxRate=${uiParams.maxRate.toFixed(0)}/s  burstiness=${uiParams.burstiness.toFixed(2)}  overlap=${uiParams.overlap.toFixed(2)}
+grain≈${d ? d.grainMs.toFixed(1) : "—"}ms  hop≈${d ? d.hopMs.toFixed(1) : "—"}ms
+depth01=${uiParams.debugDepth01.toFixed(3)}  rate=${uiParams.debugRate.toFixed(2)}/s
+curveMode=${curveMode}  sourceLen=${uiParams.sourceLen}  sourceUpd<=${uiParams.sourceMaxUpdateHz}/s
+audioSR=${sr}
+axes: X=red Y=green Z=blue`;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // EN: Keep source buffer fresh (capped) even when audio is off, so scope stays updated.
+  rebuildSourceIfDue(performance.now());
+
+  if (curveViewGroup) {
+    curveViewGroup.rotation.y = rotYaw;
+    curveViewGroup.rotation.x = rotPitch;
+  }
+
+  updateHud();
+  bubbleAudioEngine.drawOutputWaveform();
+  if (curve && indicator) {
+    const u = bubbleAudioEngine.getContext() ? getContinuousPhaseAtTime(bubbleAudioEngine.getCurrentTime()) : 0;
+    const p = curve.getPointAt(u).clone();
+
+    // EN: Indicator is inside the same rotated group, so do not apply Euler here.
+    indicator.position.copy(p);
+  }
+  
+  renderer.render(scene, camera);
+}
+
+titleEl.textContent = document.title;
+refreshDerivedUi();
+rebuildCurve("random");
+resizeAll();
+animate();
+</script>
+</body>
+</html>
