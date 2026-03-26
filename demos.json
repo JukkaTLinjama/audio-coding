@@ -28,11 +28,11 @@
         },
         {
             "id": "bubble gen",
-            "title": "Bubble generator v4",
-            "path": "./Vibroacoustic/test-generators/path-generator-v5.5.html",
-            "thumb": "assets/bubble-gen-v4.png",
+            "title": "Bubble generator v6",
+            "path": "./Vibroacoustic/test-generators/path-generator-v6.html",
+            "thumb": "assets/bubble-gen-v6.png",
             "status": "WIP",
-            "description": "Bubble sound generator. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
+            "description": "Bubble sound generator w API. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
             "tags": [
                 "bubble sound synthesis",
                 "granular synthesis",
