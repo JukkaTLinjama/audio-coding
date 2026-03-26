@@ -366,6 +366,23 @@ function pointToBubbleControl(p) {
   return { pan, freq, rate };
 }
 
+// EN: Host-side event generator resolves path phase, sampled point and final audio control for one event time
+function generateBubbleEventAtTime(when) {
+  const phase = getContinuousPhaseAtTime(when);
+  const point = sampleCurvePointAtPhase(phase);
+  const ctrl = pointToBubbleControl(point);
+
+  uiParams.debugDepth01 = point.depth01;
+  uiParams.debugRate = ctrl.rate;
+
+  return {
+    pan: ctrl.pan,
+    freq: ctrl.freq,
+    rate: ctrl.rate,
+    depth01: point.depth01
+  };
+}
+
 // EN: Sync UI-side default uiParams into the audio engine.
 // EN: This is the current bridge point that will later map naturally to a separate engine module API.
 function syncUiParamsToAudioEngine() {
@@ -725,15 +742,7 @@ btnStart.onclick = async () => {
   // EN: Simulation owns transportStartTime because speedHz/phase belong to the path domain, not the audio engine.
   transportStartTime = audioCtx.currentTime;
 
-  bubbleAudioEngine.startAudio({
-    getEventPhaseAtTime: getContinuousPhaseAtTime,
-    sampleCurvePointAtPhase,
-    pointToBubbleControl,
-    onDebugControl(baseCtrl) {
-      uiParams.debugDepth01 = baseCtrl.depth01;
-      uiParams.debugRate = baseCtrl.rate;
-    }
-  });
+  bubbleAudioEngine.startAudio();
 };
 
 btnStop.onclick = () => {
@@ -855,6 +864,7 @@ bubbleAudioEngine.setHostCallbacks({
     refreshDerivedUi();
   }
 });
+bubbleAudioEngine.setEventGenerator(generateBubbleEventAtTime);
 
 titleEl.textContent = document.title;
 refreshDerivedUi();
