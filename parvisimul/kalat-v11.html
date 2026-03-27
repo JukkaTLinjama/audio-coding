@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v10</title>
+  <title>Fish School (Boids) – v11</title>
   <style>
     html,
     body {
@@ -251,7 +251,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v10 – effort indicators</div>
+  <div id="versionBar">Fish School v11 –bubble sounds</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -380,24 +380,32 @@
       pushIntervalMs: 80, // EN: Throttle public API updates to keep integration lightweight.
       pan: 0,
       depth01: 0.5,
-      rate: 0,
-      volume: 0
+      rate: 10,
+      volume: 0.85
     };
 
     function clamp01(x) {
       return clamp(x, 0, 1);
     }
 
-    async function startBubbleAudioOnce() {
-      if (audioState.started) return;
+      async function startBubbleAudioOnce() {
+        if (audioState.started) return;
 
-      bubbleAudio.ensureAudio();
-      const ctx = bubbleAudio.getContext();
-      if (ctx && ctx.state === "suspended") await ctx.resume();
+        bubbleAudio.ensureAudio();
+        const ctx = bubbleAudio.getContext();
+        if (ctx && ctx.state === "suspended") await ctx.resume();
 
-      bubbleAudio.startAudio();
-      audioState.started = true;
-    }
+        // EN: Push a known-audible initial control state before starting the scheduler.
+        bubbleAudio.setControls({
+          rate: audioState.rate,
+          depth01: audioState.depth01,
+          pan: audioState.pan,
+          volume: audioState.volume
+        });
+
+        bubbleAudio.startAudio();
+        audioState.started = true;
+      }
 
     // ---------- Utilities ----------
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -2404,6 +2412,38 @@ function step(dt) {
       }
 
       renderer.render(scene, camera);
+
+      // ---------- Audio update (minimal integration) ----------
+      // EN: Map simple simulation signals to audio parameters.
+
+      // Example source: fish #0 (probe fish)
+      const i = 0;
+
+      // EN: Map X position to stereo pan (-1..1)
+      audioState.pan = clamp(P[i].x * 0.02, -1, 1);
+
+      // EN: Map Z distance to depth (0..1)
+      // EN: Use path transfer blend as the main depth/control signal for audio.
+      audioState.depth01 = clamp01(pathBlend[0]);
+
+      // EN: Use school activity as rate driver
+      audioState.rate = clamp(schoolEffortMean * 40, 2, 20);
+
+      // EN: Use max effort as volume
+      audioState.volume = clamp(schoolEffortMax * 2.0, 0, 0.8);
+
+      // EN: Throttle control updates to avoid excessive API calls
+      const audioNow = performance.now();
+      if (audioNow - audioState.lastPushMs > audioState.pushIntervalMs) {
+        bubbleAudio.setControls({
+          pan: audioState.pan,
+          depth01: audioState.depth01,
+          rate: audioState.rate,
+          volume: audioState.volume
+        });
+        audioState.lastPushMs = audioNow;
+      }
+
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
