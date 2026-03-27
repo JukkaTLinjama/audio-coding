@@ -251,7 +251,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v11 –bubble sounds</div>
+  <div id="versionBar">Fish School v11.1 –bubble sounds</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -394,16 +394,6 @@
         bubbleAudio.ensureAudio();
         const ctx = bubbleAudio.getContext();
         if (ctx && ctx.state === "suspended") await ctx.resume();
-
-        // EN: Debug audio control signals (throttled logging)
-        if (Math.random() < 0.02) {
-          console.log("audio", {
-            rate: audioState.rate.toFixed(2),
-            volume: audioState.volume.toFixed(2),
-            pan: audioState.pan.toFixed(2),
-            depth01: audioState.depth01.toFixed(2)
-          });
-        }
 
         // EN: Push a known-audible initial control state before starting the scheduler.
         bubbleAudio.setControls({
@@ -1265,7 +1255,7 @@ fish.add(modelFix);
         if (!effMeanBar || !effMaxBar || !latMeanBar) return;
 
         // EN: Normalize with soft caps for readable debug bars.
-        const effMean01 = clamp(schoolEffortMean / 1.2, 0, 1);
+        const effMean01 = clamp(schoolEffortMean / 2.2, 0, 1);
         const effMax01 = clamp(schoolEffortMax / 2.8, 0, 1);
         const latMean01 = clamp(schoolLatMean / 1.2, 0, 1);
 
@@ -2429,22 +2419,34 @@ function step(dt) {
       // Example source: fish #0 (probe fish)
       const i = 0;
 
-      // EN: Map X position to stereo pan (-1..1)
-      audioState.pan = clamp(P[i].x * 0.02, -1, 1);
+      // EN: Reuse the same soft-cap normalization as the effort HUD.
+      const effMean01 = clamp(schoolEffortMean / 1.2, 0, 1);
+      const effMax01 = clamp(schoolEffortMax / 2.8, 0, 1);
+      const latMean01 = clamp(schoolLatMean / 1.2, 0, 1);
 
-      // EN: Map Z distance to depth (0..1)
-      // EN: Use path transfer blend as the main depth/control signal for audio.
-      audioState.depth01 = clamp01(pathBlend[0]);
+      // EN: Increase pan sensitivity so lateral fish motion is audible in stereo.
+      audioState.pan = clamp(V[i].x / 0.6, -1, 1);
 
-      // EN: Use school activity as rate driver
-      audioState.rate = clamp(schoolEffortMean * 40, 2, 20);
+      // EN: Keep depth away from hard extremes so timing jitter can breathe.
+      audioState.depth01 = 0.15 + 0.70 * clamp01(pathBlend[0]);
 
-      // EN: Use max effort as volume
-      audioState.volume = clamp(schoolEffortMax * 2.0, 0, 0.8);
+      // EN: Expand the audible event-rate range from school effort.
+      audioState.rate = 2 + 22 * Math.pow(effMean01, 1.2);
+
+      // EN: Increase dynamic contrast so swarm energy changes are easier to hear.
+      audioState.volume = clamp(0.06 + 0.62 * Math.pow(effMax01, 1.3) + 0.10 * latMean01, 0, 0.9);
 
       // EN: Throttle control updates to avoid excessive API calls
       const audioNow = performance.now();
       if (audioNow - audioState.lastPushMs > audioState.pushIntervalMs) {
+        // EN: Debug current audio control values right before pushing them to the engine.
+        console.log("audio", {
+          rate: audioState.rate.toFixed(2),
+          volume: audioState.volume.toFixed(2),
+          pan: audioState.pan.toFixed(2),
+          depth01: audioState.depth01.toFixed(2)
+        });
+
         bubbleAudio.setControls({
           pan: audioState.pan,
           depth01: audioState.depth01,
