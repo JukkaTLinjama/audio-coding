@@ -1,4 +1,4 @@
-// EN: Bubble audio engine module section.
+// EN: Bubble audio engine module section. v6
 // EN: This keeps the audio engine clearly separated inside the HTML file before moving it to its own JS module.
 // EN: The simulation/path layer remains below and injects control callbacks into this engine. 
 

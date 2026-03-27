@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bubble Engine API Stress Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel2: #1f2630;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --danger: #ff7b72;
+      --ok: #3fb950;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 8px;
+    }
+    p {
+      color: var(--muted);
+      line-height: 1.4;
+      margin: 0 0 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    .controls {
+      display: grid;
+      gap: 10px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 86px;
+      gap: 10px;
+      align-items: center;
+    }
+    .row label {
+      font-size: 13px;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .row output {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+    }
+    input[type="range"], select {
+      width: 100%;
+    }
+    button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: #163456; }
+    button.danger { background: #3d1e22; }
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .stat .k {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .stat .v {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+    canvas {
+      width: 100%;
+      display: block;
+      background: #05080c;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    #scopeCanvas { height: 180px; }
+    #xyCanvas { height: 320px; margin-top: 12px; }
+    .log {
+      height: 190px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #0a0f14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: #c9d1d9;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: #d29922; }
+    .bad { color: var(--danger); }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Bubble engine API stress test</h1>
+    <p>
+      This page drives the engine from an external event generator and hammers the public control API.
+      The goal is to reveal clicks, lockups, stale state, broken clamping, or scheduler instability.
+    </p>
+
+    <div class="grid">
+      <div class="panel">
+        <div class="button-row">
+          <button id="btnInit" class="primary">Init audio</button>
+          <button id="btnStart" class="primary">Start</button>
+          <button id="btnStop" class="danger">Stop</button>
+          <button id="btnReset">Reset controls</button>
+        </div>
+
+        <div class="status-grid">
+          <div class="stat"><div class="k">Engine</div><div class="v" id="statEngine">idle</div></div>
+          <div class="stat"><div class="k">Audio ctx</div><div class="v" id="statCtx">uninitialized</div></div>
+          <div class="stat"><div class="k">Events/s</div><div class="v" id="statEvents">0</div></div>
+          <div class="stat"><div class="k">State pushes/s</div><div class="v" id="statPushes">0</div></div>
+          <div class="stat"><div class="k">Grain ms</div><div class="v" id="statGrain">-</div></div>
+          <div class="stat"><div class="k">Hop ms</div><div class="v" id="statHop">-</div></div>
+        </div>
+
+        <div class="section-title">Test mode</div>
+        <div class="controls" style="margin-bottom:12px;">
+          <div class="row">
+            <label>
+              Mode
+              <select id="modeSelect">
+                <option value="orbit">orbit</option>
+                <option value="sweep">sweep</option>
+                <option value="chaos">chaos</option>
+                <option value="bursts">bursts</option>
+                <option value="stairs">stairs</option>
+              </select>
+            </label>
+            <output id="modeOut">orbit</output>
+          </div>
+          <div class="row">
+            <label>
+              Stress rate (API pushes/s)
+              <input id="stressRate" type="range" min="1" max="120" step="1" value="30" />
+            </label>
+            <output id="stressRateOut">30</output>
+          </div>
+          <div class="row">
+            <label>
+              Generator speed
+              <input id="generatorSpeed" type="range" min="0.1" max="4" step="0.1" value="1.0" />
+            </label>
+            <output id="generatorSpeedOut">1.0</output>
+          </div>
+          <div class="row">
+            <label>
+              API intensity
+              <input id="apiIntensity" type="range" min="0" max="1" step="0.01" value="1.0" />
+            </label>
+            <output id="apiIntensityOut">1.00</output>
+          </div>
+        </div>
+
+        <div class="section-title">Manual API overrides</div>
+        <div class="controls">
+          <div class="row"><label>Rate <input id="rate" type="range" min="0" max="35" step="0.1" value="12" /></label><output id="rateOut">12.0</output></div>
+          <div class="row"><label>Depth01 <input id="depth01" type="range" min="0" max="1" step="0.01" value="0.55" /></label><output id="depth01Out">0.55</output></div>
+          <div class="row"><label>Pan <input id="pan" type="range" min="-1" max="1" step="0.01" value="0" /></label><output id="panOut">0.00</output></div>
+          <div class="row"><label>Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.45" /></label><output id="volumeOut">0.45</output></div>
+          <div class="row"><label>Base MIDI <input id="baseMidi" type="range" min="36" max="84" step="1" value="57" /></label><output id="baseMidiOut">57</output></div>
+          <div class="row"><label>Max rate <input id="maxRate" type="range" min="5" max="40" step="0.1" value="18" /></label><output id="maxRateOut">18.0</output></div>
+          <div class="row"><label>Burstiness <input id="burstiness" type="range" min="0.4" max="2" step="0.01" value="1.0" /></label><output id="burstinessOut">1.00</output></div>
+          <div class="row"><label>Overlap <input id="overlap" type="range" min="0" max="0.85" step="0.01" value="0.25" /></label><output id="overlapOut">0.25</output></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">Scope</div>
+        <canvas id="scopeCanvas" width="840" height="180"></canvas>
+        <canvas id="xyCanvas" width="840" height="320"></canvas>
+        <div class="section-title" style="margin-top:12px;">Log</div>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createBubbleAudioEngine } from './bubble-engine.js';
+
+    const engine = createBubbleAudioEngine({
+      masterVolume: 0.7,
+      baseMidi: 57,
+      maxRate: 18,
+      burstiness: 1.0,
+      overlap: 0.25
+    });
+
+    const $ = (id) => document.getElementById(id);
+    const ui = {
+      btnInit: $('btnInit'),
+      btnStart: $('btnStart'),
+      btnStop: $('btnStop'),
+      btnReset: $('btnReset'),
+      modeSelect: $('modeSelect'),
+      modeOut: $('modeOut'),
+      stressRate: $('stressRate'),
+      stressRateOut: $('stressRateOut'),
+      generatorSpeed: $('generatorSpeed'),
+      generatorSpeedOut: $('generatorSpeedOut'),
+      apiIntensity: $('apiIntensity'),
+      apiIntensityOut: $('apiIntensityOut'),
+      scopeCanvas: $('scopeCanvas'),
+      xyCanvas: $('xyCanvas'),
+      log: $('log'),
+      statEngine: $('statEngine'),
+      statCtx: $('statCtx'),
+      statEvents: $('statEvents'),
+      statPushes: $('statPushes'),
+      statGrain: $('statGrain'),
+      statHop: $('statHop')
+    };
+
+    const apiKeys = ['rate','depth01','pan','volume','baseMidi','maxRate','burstiness','overlap'];
+    const sliderEls = Object.fromEntries(apiKeys.map((key) => [key, $(key)]));
+    const outEls = Object.fromEntries(apiKeys.map((key) => [key, $(key + 'Out')]));
+
+    const scopeCtx = ui.scopeCanvas.getContext('2d');
+    const xyCtx = ui.xyCanvas.getContext('2d');
+
+    const state = {
+      mode: 'orbit',
+      running: false,
+      lastPublicState: null,
+      eventsGenerated: 0,
+      pushesSent: 0,
+      eventsGeneratedPrev: 0,
+      pushesSentPrev: 0,
+      eventsPerSecond: 0,
+      pushesPerSecond: 0,
+      t0: performance.now(),
+      phase: 0,
+      lastEvent: null,
+      recentPoints: [],
+      pushTimer: null
+    };
+
+    // EN: Deterministic RNG for reproducible stress tests
+      let seed = 12345;
+      function rnd() {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      }
+
+    function clamp(v, min, max) {
+      return Math.min(max, Math.max(min, v));
+    }
+
+    function logLine(text, cls = '') {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+      ui.log.prepend(line);
+      while (ui.log.children.length > 120) ui.log.removeChild(ui.log.lastChild);
+    }
+
+    function readSliderValues() {
+      return {
+        rate: Number(sliderEls.rate.value),
+        depth01: Number(sliderEls.depth01.value),
+        pan: Number(sliderEls.pan.value),
+        volume: Number(sliderEls.volume.value),
+        baseMidi: Number(sliderEls.baseMidi.value),
+        maxRate: Number(sliderEls.maxRate.value),
+        burstiness: Number(sliderEls.burstiness.value),
+        overlap: Number(sliderEls.overlap.value)
+      };
+    }
+
+    function writeOutputs() {
+      outEls.rate.textContent = Number(sliderEls.rate.value).toFixed(1);
+      outEls.depth01.textContent = Number(sliderEls.depth01.value).toFixed(2);
+      outEls.pan.textContent = Number(sliderEls.pan.value).toFixed(2);
+      outEls.volume.textContent = Number(sliderEls.volume.value).toFixed(2);
+      outEls.baseMidi.textContent = sliderEls.baseMidi.value;
+      outEls.maxRate.textContent = Number(sliderEls.maxRate.value).toFixed(1);
+      outEls.burstiness.textContent = Number(sliderEls.burstiness.value).toFixed(2);
+      outEls.overlap.textContent = Number(sliderEls.overlap.value).toFixed(2);
+      ui.modeOut.textContent = ui.modeSelect.value;
+      ui.stressRateOut.textContent = ui.stressRate.value;
+      ui.generatorSpeedOut.textContent = Number(ui.generatorSpeed.value).toFixed(1);
+      ui.apiIntensityOut.textContent = Number(ui.apiIntensity.value).toFixed(2);
+    }
+
+    function applyManualControls() {
+      const values = readSliderValues();
+      engine.setControls(values);
+      state.pushesSent += 1;
+      updateDerivedStats(values.maxRate, values.overlap);
+    }
+
+    function updateDerivedStats(maxRate, overlap) {
+      const ctx = engine.getContext();
+      if (!ctx) return;
+      const d = engine.computeDerivedGrain(ctx.sampleRate, maxRate, overlap);
+      ui.statGrain.textContent = d.grainMs.toFixed(1);
+      ui.statHop.textContent = d.hopMs.toFixed(1);
+    }
+
+    function buildEventGenerator() {
+      return function testEventGenerator(when) {
+        const speed = Number(ui.generatorSpeed.value);
+        const t = (when + performance.now() * 0.001 - state.t0 * 0.001) * speed;
+        const mode = state.mode;
+        let x = 0;
+        let y = 0;
+
+        if (mode === 'orbit') {
+          x = Math.cos(t * 0.9) * 0.82;
+          y = Math.sin(t * 1.3) * 0.72;
+        } else if (mode === 'sweep') {
+          x = Math.sin(t * 0.35);
+          y = Math.sin(t * 1.9) * 0.85;
+        } else if (mode === 'chaos') {
+          x = Math.sin(t * 1.7) * 0.7 + Math.sin(t * 4.7) * 0.24;
+          y = Math.cos(t * 2.3) * 0.55 + Math.sin(t * 7.1) * 0.18;
+        }
+         else if (mode === 'bursts') {
+          const gate = Math.pow(Math.max(0, Math.sin(t * 1.15)), 4);
+          x = Math.sin(t * 2.1) * (0.2 + gate * 0.8);
+          y = -0.3 + gate * 1.1 - 0.55;
+        } else if (mode === 'stairs') {
+          const steps = 8;
+          const raw = (Math.sin(t * 0.55) * 0.5 + 0.5) * steps;
+          x = (Math.floor(raw) / (steps - 1)) * 2 - 1;
+          y = Math.sin(t * 3.4) * 0.6;
+        }
+
+        const pan = clamp(x, -1, 1);
+        const depth01 = clamp(y * 0.5 + 0.5, 0, 1);
+        const baseMidi = Number(sliderEls.baseMidi.value);
+        const midi = baseMidi + y * 10 + Math.sin(t * 0.37) * 2.5;
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        const rateBase = Number(sliderEls.rate.value);
+        const modeRateBoost = mode === 'bursts' ? Math.max(0, Math.sin(t * 1.15)) * 10 : 0;
+        const rate = clamp(rateBase * (0.35 + depth01 * 1.2) + modeRateBoost, 0, 40);
+
+        state.lastEvent = { x, y, pan, depth01, freq, rate };
+        state.recentPoints.push({ x, y, age: performance.now() });
+        while (state.recentPoints.length > 220) state.recentPoints.shift();
+        state.eventsGenerated += 1;
+
+        return { pan, depth01, freq, rate };
+      };
+    }
+
+    function pushStressControls() {
+      const base = readSliderValues();
+      const intensity = Number(ui.apiIntensity.value);
+      const t = performance.now() * 0.001;
+      const mode = state.mode;
+
+      if (intensity <= 0) {
+        engine.setControls(base);
+        state.pushesSent += 1;
+        return;
+      }
+
+      const next = { ...base };
+
+      if (mode === 'orbit') {
+        next.pan = clamp(base.pan + Math.sin(t * 1.4) * 0.6 * intensity, -1, 1);
+        next.depth01 = clamp(base.depth01 + Math.sin(t * 1.8) * 0.35 * intensity, 0, 1);
+      } else if (mode === 'sweep') {
+        next.rate = clamp(base.rate + Math.sin(t * 0.8) * 10 * intensity, 0, 40);
+        next.maxRate = clamp(base.maxRate + Math.sin(t * 0.5) * 8 * intensity, 5, 40);
+      } else if (mode === 'chaos') {
+
+        // EN: deterministic + random hybrid chaos for real stress
+        const r = rnd();  // käyttää jo lisättyä RNG:ta
+
+        next.pan = clamp(
+          Math.sin(t * 2.7) * 0.9 * intensity +
+          (r * 2 - 1) * 0.5 * intensity,
+          -1, 1
+        );
+
+        next.depth01 = clamp(
+          0.5 +
+          Math.sin(t * 3.9) * 0.45 * intensity +
+          (r - 0.5) * 0.6 * intensity,
+          0, 1
+        );
+
+        next.rate = clamp(
+          base.rate +
+          (Math.sin(t * 5.7) * 11 + Math.cos(t * 2.1) * 6) * intensity +
+          (r - 0.5) * 20 * intensity,
+          0, 40
+        );
+
+        next.burstiness = clamp(
+          base.burstiness +
+          Math.sin(t * 2.4) * 0.7 * intensity +
+          (r - 0.5) * 0.8 * intensity,
+          0.4, 2.0
+        );
+        // EN: occasional invalid spike to test robustness
+        if (r < 0.05) {
+          next.overlap = 1.2;     // invalid
+          next.maxRate = -5;      // invalid
+        }
+
+      } else if (mode === 'bursts') {
+        const gate = Math.pow(Math.max(0, Math.sin(t * 1.15)), 4);
+        next.rate = clamp(base.rate + gate * 18 * intensity, 0, 40);
+        next.overlap = clamp(base.overlap + gate * 0.45 * intensity, 0, 0.85);
+        next.volume = clamp(base.volume + gate * 0.25 * intensity, 0, 1);
+      } else if (mode === 'stairs') {
+        const step = Math.floor((t * 2.0) % 5);
+        next.baseMidi = clamp(base.baseMidi + (step - 2) * 3 * intensity, 36, 84);
+        next.maxRate = clamp(base.maxRate + (step - 2) * 3 * intensity, 5, 40);
+      }
+
+      engine.setControls(next);
+      state.pushesSent += 1;
+      updateDerivedStats(next.maxRate, next.overlap);
+    }
+
+    function restartStressTimer() {
+      if (state.pushTimer) clearInterval(state.pushTimer);
+      const pushesPerSec = Math.max(1, Number(ui.stressRate.value));
+      const intervalMs = Math.max(8, Math.round(1000 / pushesPerSec));
+      state.pushTimer = setInterval(pushStressControls, intervalMs);
+    }
+
+    function drawScope() {
+      const w = ui.scopeCanvas.width;
+      const h = ui.scopeCanvas.height;
+      scopeCtx.clearRect(0, 0, w, h);
+      scopeCtx.fillStyle = '#05080c';
+      scopeCtx.fillRect(0, 0, w, h);
+
+      const waveform = engine.getOutputWaveform();
+      scopeCtx.strokeStyle = '#223040';
+      scopeCtx.beginPath();
+      scopeCtx.moveTo(0, h * 0.5);
+      scopeCtx.lineTo(w, h * 0.5);
+      scopeCtx.stroke();
+
+      if (!waveform) return;
+
+      scopeCtx.strokeStyle = '#58a6ff';
+      scopeCtx.beginPath();
+      const len = waveform.length;
+      for (let i = 0; i < len; i++) {
+        const x = (i / (len - 1)) * w;
+        const y = h * 0.5 - waveform[i] * h * 0.38;
+        if (i === 0) scopeCtx.moveTo(x, y);
+        else scopeCtx.lineTo(x, y);
+      }
+      scopeCtx.stroke();
+    }
+
+    function drawXY() {
+      const w = ui.xyCanvas.width;
+      const h = ui.xyCanvas.height;
+      xyCtx.clearRect(0, 0, w, h);
+      xyCtx.fillStyle = '#05080c';
+      xyCtx.fillRect(0, 0, w, h);
+
+      xyCtx.strokeStyle = '#223040';
+      xyCtx.beginPath();
+      xyCtx.moveTo(w * 0.5, 0);
+      xyCtx.lineTo(w * 0.5, h);
+      xyCtx.moveTo(0, h * 0.5);
+      xyCtx.lineTo(w, h * 0.5);
+      xyCtx.stroke();
+
+      const now = performance.now();
+      for (const p of state.recentPoints) {
+        const age01 = clamp((now - p.age) / 3500, 0, 1);
+        xyCtx.fillStyle = `rgba(88,166,255,${1 - age01})`;
+        xyCtx.beginPath();
+        xyCtx.arc((p.x * 0.45 + 0.5) * w, (1 - (p.y * 0.45 + 0.5)) * h, 2.2, 0, Math.PI * 2);
+        xyCtx.fill();
+      }
+
+      if (state.lastEvent) {
+        const p = state.lastEvent;
+        const x = (p.x * 0.45 + 0.5) * w;
+        const y = (1 - (p.y * 0.45 + 0.5)) * h;
+        xyCtx.fillStyle = '#3fb950';
+        xyCtx.beginPath();
+        xyCtx.arc(x, y, 6, 0, Math.PI * 2);
+        xyCtx.fill();
+
+        xyCtx.fillStyle = '#c9d1d9';
+        xyCtx.font = '12px monospace';
+        xyCtx.fillText(`pan ${p.pan.toFixed(2)} depth ${p.depth01.toFixed(2)} rate ${p.rate.toFixed(1)}`, 12, 20);
+        xyCtx.fillText(`freq ${p.freq.toFixed(1)} Hz`, 12, 36);
+      }
+    }
+
+    function updateStatus() {
+      const status = engine.getStatus();
+      ui.statEngine.textContent = status.isRunning ? 'running' : 'stopped';
+      ui.statCtx.textContent = status.contextState;
+      ui.statEvents.textContent = state.eventsPerSecond.toFixed(1);
+      ui.statPushes.textContent = state.pushesPerSecond.toFixed(1);
+    }
+
+    function animate() {
+      drawScope();
+      drawXY();
+      updateStatus();
+      requestAnimationFrame(animate);
+    }
+
+    setInterval(() => {
+      state.eventsPerSecond = state.eventsGenerated - state.eventsGeneratedPrev;
+      state.pushesPerSecond = state.pushesSent - state.pushesSentPrev;
+      state.eventsGeneratedPrev = state.eventsGenerated;
+      state.pushesSentPrev = state.pushesSent;
+    }, 1000);
+
+    engine.setHostCallbacks({
+      onPublicStateChanged(nextState) {
+        state.lastPublicState = nextState;
+      }
+    });
+
+    engine.setEventGenerator(buildEventGenerator());
+
+    for (const key of apiKeys) {
+      sliderEls[key].addEventListener('input', () => {
+        writeOutputs();
+        applyManualControls();
+      });
+    }
+
+    ui.modeSelect.addEventListener('change', () => {
+      state.mode = ui.modeSelect.value;
+      writeOutputs();
+      logLine(`Mode -> ${state.mode}`, 'ok');
+    });
+
+    ui.stressRate.addEventListener('input', () => {
+      writeOutputs();
+      restartStressTimer();
+    });
+
+    ui.generatorSpeed.addEventListener('input', writeOutputs);
+    ui.apiIntensity.addEventListener('input', writeOutputs);
+
+    ui.btnInit.addEventListener('click', async () => {
+      try {
+        engine.ensureAudio();
+        const ctx = engine.getContext();
+        if (ctx && ctx.state === 'suspended') await ctx.resume();
+        updateDerivedStats(Number(sliderEls.maxRate.value), Number(sliderEls.overlap.value));
+        logLine('Audio initialized.', 'ok');
+      } catch (err) {
+        logLine(`Init failed: ${err.message}`, 'bad');
+        console.error(err);
+      }
+    });
+
+    ui.btnStart.addEventListener('click', async () => {
+      try {
+        engine.ensureAudio();
+        const ctx = engine.getContext();
+        if (ctx && ctx.state === 'suspended') await ctx.resume();
+        engine.startAudio();
+        state.running = true;
+        applyManualControls();
+        logLine('Engine started.', 'ok');
+      } catch (err) {
+        logLine(`Start failed: ${err.message}`, 'bad');
+        console.error(err);
+      }
+    });
+
+    ui.btnStop.addEventListener('click', () => {
+      engine.stopAudio();
+      state.running = false;
+      logLine('Engine stopped.', 'warn');
+    });
+
+    ui.btnReset.addEventListener('click', () => {
+      engine.resetControls();
+      applyManualControls();
+      logLine('Controls reset and manual values re-applied.', 'warn');
+    });
+
+    writeOutputs();
+    applyManualControls();
+    restartStressTimer();
+    animate();
+    logLine('Page ready. Keep bubble-engine.js in the same folder as this HTML file.', 'ok');
+  </script>
+</body>
+</html>
