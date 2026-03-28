@@ -1,6 +1,7 @@
-// EN: Bubble audio engine module section. v6.2
-// EN: This keeps the audio engine clearly separated inside the HTML file before moving it to its own JS module.
-// EN: The simulation/path layer remains below and injects control callbacks into this engine. 
+// bubble audio engine v7.0
+// EN: Introduces directional coherence → dissonance mapping,
+// EN: chord warping, and overlap-based texture control.
+// EN: BREAKING: adds 'dissonance' to public controls.
 
 export function createBubbleAudioEngine(initialDefaults = {}) {
     function clamp(v, min, max) {

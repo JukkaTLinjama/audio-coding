@@ -362,7 +362,7 @@
 
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-    import { createBubbleAudioEngine } from "./bubble-engine-v6.js"; // EN: Optional audio engine for bubble sounds, v6+ compatible with the new code structure.
+    import { createBubbleAudioEngine } from "./bubble-engine-v7.js"; // EN: Optional audio engine for bubble sounds, v6+ compatible with the new code structure.
 
     // ---------- Audio bridge ----------
     // EN: Keep audio integration separate from the simulation logic.
@@ -2437,6 +2437,9 @@ function step(dt) {
       const effMax01 = clamp(schoolEffortMax / 2.8, 0, 1);
       const dirCoh01 = clamp(schoolDirCoherence, 0, 1);
 
+      // EN: Expand the mid-range strongly so moderate heading disorder becomes clearly audible.
+      const disagreement01 = clamp(Math.pow(1 - dirCoh01, 0.45) * 1.35, 0, 1);
+
       // EN: Increase pan sensitivity so lateral fish motion is audible in stereo.
       audioState.pan = clamp(V[i].x / 0.6, -1, 1);
 
@@ -2457,21 +2460,21 @@ function step(dt) {
       const audioNow = performance.now();
       if (audioNow - audioState.lastPushMs > audioState.pushIntervalMs) {
         // EN: Debug current audio control values right before pushing them to the engine.
-        console.log("audio", {
-          rate: audioState.rate.toFixed(2),
-          volume: audioState.volume.toFixed(2),
-          pan: audioState.pan.toFixed(2),
-          depth01: audioState.depth01.toFixed(2),
-          overlap: overlapFromCoherence.toFixed(2),
-          dirCoh: dirCoh01.toFixed(2)
-        });
+        console.log(
+          "audio",
+          "dirCoh=", dirCoh01.toFixed(2),
+          "dissonance=", disagreement01.toFixed(2),
+          "rate=", audioState.rate.toFixed(2),
+          "overlap=", overlapFromCoherence.toFixed(2)
+        );
 
         bubbleAudio.setControls({
           pan: audioState.pan,
           depth01: audioState.depth01,
           rate: audioState.rate,
           volume: audioState.volume,
-          overlap: overlapFromCoherence
+          overlap: overlapFromCoherence,
+          dissonance: disagreement01
         });
         audioState.lastPushMs = audioNow;
       }
