@@ -151,13 +151,17 @@ export function createBubbleAudioEngine(initialDefaults = {}) {
         return { ...apiOverrides };
     }
 
-    function getActiveState() {
+    function getActiveState() { //// EN: Return the effective public control state, not only the engine-default-backed subset.
         return {
+            rate: apiOverrides.rate,
+            depth01: apiOverrides.depth01,
+            pan: apiOverrides.pan,
             volume: clamp(apiOverrides.volume ?? 1, 0, 1),
             baseMidi: apiOverrides.baseMidi ?? engineDefaults.baseMidi,
             maxRate: apiOverrides.maxRate ?? engineDefaults.maxRate,
             burstiness: apiOverrides.burstiness ?? engineDefaults.burstiness,
-            overlap: apiOverrides.overlap ?? engineDefaults.overlap
+            overlap: apiOverrides.overlap ?? engineDefaults.overlap,
+            dissonance: apiOverrides.dissonance ?? 0
         };
     }
 
@@ -214,6 +218,7 @@ export function createBubbleAudioEngine(initialDefaults = {}) {
         apiOverrides.maxRate = null;
         apiOverrides.burstiness = null;
         apiOverrides.overlap = null;
+        apiOverrides.dissonance = null;
         notifyPublicStateChanged();
     }
 
