@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Fish School (Boids) – v11.3</title>
+  <title>Fish School (Boids) – v11.3b</title>
   <style>
     html,
     body {
@@ -251,7 +251,7 @@
 </head>
 
 <body>
-  <div id="versionBar">Fish School v11.3 –bubble sounds engine</div>
+  <div id="versionBar">Fish School v11.31 –bubble sounds engine</div>
   <div id="hud">
     <div style="
       font-weight:600;
@@ -381,7 +381,8 @@
       pan: 0,
       depth01: 0.5,
       rate: 10,
-      volume: 0.85
+      volume: 0.85,
+      freq: 220
     };
 
     function clamp01(x) {
@@ -406,6 +407,10 @@
         bubbleAudio.startAudio();
         audioState.started = true;
       }
+
+    function semitoneRatio(semitones) { // EN: Convert semitone intervals to frequency ratios for pitch control.
+      return Math.pow(2, semitones / 12);
+    }
 
     // ---------- Utilities ----------
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -452,7 +457,7 @@
   scene.fog = new THREE.Fog(0x0b1020, 8, 80); // temporary, will be driven by params later
 
     const camera = new THREE.PerspectiveCamera(
-      50,
+      60,
       window.innerWidth / window.innerHeight,
       0.1,
       200
@@ -635,7 +640,7 @@ fish.add(modelFix);
     const params = {
      
       // EN: Base camera distance without HUD compensation.
-      baseCamZ: 22,     // EN: Manual zoom-out multiplier (UI). 1 = default.
+      baseCamZ: 13,     // EN: Manual zoom-out multiplier (UI). 1 = default.
       viewZoom: 1.00,   // EN: Fog baselines (tuned for baseCamZ). We'll scale them with zoom distance.
       fogNear0: 8,
       fogFar0: 60,
@@ -687,20 +692,20 @@ fish.add(modelFix);
       pathZAmplitudeB: 1.0,
       pathCenterXB: 0.0,
       pathCenterYB: 0.0,
-      pathCenterZB: 30.0,      // EN: Fixed Path B depth closer to camera.
-      pathBBaseCenterZ: 30.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
-      pathBNearCenterZ: 30.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
+      pathCenterZB: 10.0,      // EN: Fixed Path B depth closer to camera.
+      pathBBaseCenterZ: 10.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
+      pathBNearCenterZ: 10.0,  // EN: Keep Path B depth fixed; no runtime Z blend.
 
-      clickPathBBoost: 36.0,             // EN: Initial Path B leader speed multiplier after click
-      clickPathBBoostDuration: 6.0,     // EN: Keep boost long enough for actual approach
+      clickPathBBoost: 16.0,             // EN: Initial Path B leader speed multiplier after click
+      clickPathBBoostDuration: 1.0,     // EN: Keep boost long enough for actual approach
 
       clickPathBGlideFactor: 0.08,      // EN: Final Path B speed factor for near-still floating
-      clickPathBSettleDuration: 2.0,    // EN: Fade from boost to glide after the approach phase
+      clickPathBSettleDuration: 1.0,    // EN: Fade from boost to glide after the approach phase
       // EN: One-shot click launch impulse for fish #0 when entering Path B.
       clickLaunchImpulse: 4.8,       // EN: added speed magnitude in world units / s
-      clickLaunchForwardMix: 0.85,   // EN: keep some current forward direction
-      clickLaunchSideMix: 1.10,      // EN: visible sideways peel-off toward camera-right
-      clickLaunchToPathMix: 0.55,    // EN: keep the launch biased toward Path B
+      clickLaunchForwardMix: 0.45,
+      clickLaunchSideMix: 1.85,
+      clickLaunchToPathMix: 1.10,
 
       pathBBaseLeaderSpeed: 0.42,
       pathBNearLeaderSpeed: 0.12,
@@ -822,6 +827,7 @@ fish.add(modelFix);
     let pathLeaderUB = 0.0;
     let pathApproxLengthB = 1.0;
     let pathLeaderMarkerB = null;
+    let pathBCaptureIndex = 0; //// EN: Fixed Path B sample index used as a simple capture point before leader following.
 
     let clickPathBBoostTimer = 0;
     let clickPathBSettleTimer = 0;
@@ -959,6 +965,9 @@ fish.add(modelFix);
         scene.add(pathLineB);
         pathLineB.renderOrder = 9998;
       }
+      // EN: Use one fixed Path B sample as the initial capture target to avoid chasing a moving leader.
+      pathBCaptureIndex = Math.floor(pathSamplePtsB.length * 0.25) % Math.max(1, pathSamplePtsB.length);
+
     }
 
   // EN: Path B blend currently affects only Path B leader speed.
@@ -1454,9 +1463,9 @@ fish.add(modelFix);
 
       const i = 0;
 
-      // EN: Sample current Path B leader position for a launch direction cue.
-      const leaderSampleB = samplePathAtUB(pathLeaderUB);
-      const toPathB = new THREE.Vector3().subVectors(leaderSampleB.pos, P[i]);
+      // EN: Use the fixed Path B capture point for the initial launch direction.
+      const capturePosB = pathSamplePtsB[pathBCaptureIndex] || samplePathAtUB(pathLeaderUB).pos;
+      const toPathB = new THREE.Vector3().subVectors(capturePosB, P[i]);
 
       // EN: Current forward direction from fish velocity.
       const forward = V[i].clone();
@@ -1483,12 +1492,12 @@ fish.add(modelFix);
       const camUp = new THREE.Vector3()
         .copy(camera.up)
         .normalize();
-      const launchDir = new THREE.Vector3()
-        .addScaledVector(camForward, 2.2)   // EN: Strong push toward camera
-        .addScaledVector(camUp, 1.8)        // EN: Upward lift
-        .addScaledVector(forward, 0.3)      // EN: Keep a bit of original motion
-        .addScaledVector(camRight, 0.0)     // EN: Remove sideways bias
-        .addScaledVector(toPathB, 0.25);    // EN: Still bias toward Path B
+      const launchDir = new THREE.Vector3() 
+        .addScaledVector(forward, params.clickLaunchForwardMix)
+        .addScaledVector(camRight, params.clickLaunchSideMix)
+        .addScaledVector(toPathB, params.clickLaunchToPathMix)
+        .addScaledVector(camForward, 0.55)
+        .addScaledVector(camUp, 0.30);
 
       if (launchDir.lengthSq() < 1e-8) return;
       launchDir.normalize();
@@ -1710,11 +1719,32 @@ function step(dt) {
 
         // EN: Always blend continuously from Path A leader to Path B leader.
         // EN: Avoid hard target snapping during arrival / exit.
+        // EN: Let fish #0 commit early to Path B during transfer instead of chasing a midpoint target.
         useLeaderPos = leaderPos.clone().lerp(leaderPosB, pathBlendThis);
 
         useLeaderTan = tmp.tangent
           .copy(leaderTan)
           .lerp(leaderTanB, pathBlendThis);
+
+        if (i === 0 && pathBlendTarget[0] > 0.5 && pathBlendThis > 0.16) {
+          const capturePosB = pathSamplePtsB[pathBCaptureIndex] || leaderPosB;
+          const captureToFish = tmp.r0.copy(capturePosB).sub(p);
+          const captureDist = captureToFish.length();
+
+          // EN: First capture one fixed point on Path B, then switch to moving leader follow near the path.
+          if (captureDist > 2.0) {
+            useLeaderPos.copy(capturePosB);
+            if (captureToFish.lengthSq() > 1e-8) {
+              useLeaderTan.copy(captureToFish).normalize();
+            } else {
+              useLeaderTan.copy(leaderTanB);
+            }
+          } else {
+            useLeaderPos.copy(leaderPosB);
+            useLeaderTan.copy(leaderTanB);
+          }
+        }
+
 
         if (useLeaderTan.lengthSq() < 1e-8) {
           useLeaderTan.copy(leaderTan);
@@ -1728,22 +1758,21 @@ function step(dt) {
           pathBlendThis
         );
 
-          // EN: Normalized leader speed 0..1 for low-speed behavior blending.
-          const leaderSpeed01 = clamp(useLeaderSpeed / 1.8, 0, 1);
+        // EN: Normalized leader speed 0..1 for low-speed behavior blending.
+        const leaderSpeed01 = clamp(useLeaderSpeed / 1.8, 0, 1);
 
-          // EN: Transition from path streaming to local formation holding.
-          // EN: Keep more forward path flow at low leader speed so fish do not lose corridor guidance.
-          const flowScaleThis = lerp(0.42, 1.00, leaderSpeed01);          
-          const minSpeedThis = lerp(0.08, params.minSpeed, leaderSpeed01);
+        // EN: Transition from path streaming to local formation holding.
+        // EN: Keep more forward path flow at low leader speed so fish do not lose corridor guidance.
+        const flowScaleThis = lerp(0.42, 1.00, leaderSpeed01);          
+        const minSpeedThis = lerp(0.08, params.minSpeed, leaderSpeed01);
 
-          // EN: Base direct pull toward the active leader point.
-          // EN: Stronger at low leader speed, weaker at higher leader speed.
+        // EN: Keep a minimum intercept pull for fish #0 during Path B transfer,
+        // EN: so arrival does not collapse when the global targetPull slider is low.
         let pointPullThis = params.targetPullK * lerp(1.00, 0.22 / 1.15, leaderSpeed01);
 
-        // EN: Keep stronger direct arrival pull for fish #0 during Path B transfer.
-        // EN: Do not let high Path B leader speed weaken target locking too much.
         if (i === 0 && pathBlendTarget[0] > 0.5) {
-          pointPullThis = Math.max(pointPullThis, params.targetPullK * 0.95);
+          const interceptPullMin = 0.85;
+          pointPullThis = Math.max(pointPullThis, interceptPullMin);
         }
 
           // EN: Split direct target pull from lateral corridor pull.
@@ -1807,16 +1836,17 @@ function step(dt) {
 
         // EN: Forward path flow must follow the ACTIVE leader speed.
         // EN: Otherwise the school keeps trying to cruise fast while the leader crawls.
-          // EN: Reduce forward tangent flow very near committed Path B target for fish #0 only.
-          let tangentScale = 1.0;
+    // EN: Suppress forward path streaming for fish #0 during Path B transfer,
+    // EN: so the motion reads as intercept first, hover/flow later.
+      let tangentScale = 1.0;
 
-          if (i === 0 && pathBlendThis > 0.15) {
-            const fishLen = 1.05;
-            const hoverRadius = fishLen;
-            const hoverNear01 = clamp(1.0 - arriveDist / hoverRadius, 0.0, 1.0);
+      if (i === 0 && pathBlendTarget[0] > 0.5) {
+        const transferSuppress01 = clamp(pathBlendThis / 0.22, 0, 1);
+        tangentScale *= lerp(1.0, 0.10, transferSuppress01);
 
-            const hoverFlowFactor = 0.55; // EN: Keep more forward motion near Path B target.            tangentScale = lerp(1.0, hoverFlowFactor, hoverNear01);
-          }
+        const captureNear01 = clamp(1.0 - arriveDist / 3.0, 0.0, 1.0);
+        tangentScale *= lerp(1.0, 0.05, captureNear01);
+      }
 
           tmp.desired.addScaledVector(
             useLeaderTan,
@@ -1935,9 +1965,14 @@ function step(dt) {
         // Clamp speed
         let maxSpeedThis = params.maxSpeed;
 
-        // EN: Allow temporary overspeed for fish #0 during Path B click launch
-        if (i === 0 && clickPathBBoostTimer > 0 && pathBlendTarget[0] > 0.5) {
-          maxSpeedThis *= 2.4;
+        // EN: Keep temporary overspeed active until fish #0 is actually near the fixed Path B capture point.
+        if (i === 0 && pathBlendTarget[0] > 0.5) {
+          const capturePosB = pathSamplePtsB[pathBCaptureIndex] || leaderPosB;
+          const captureDist = capturePosB.distanceTo(p);
+
+          if (captureDist > 2.0) {
+            maxSpeedThis *= 2.4;
+          }
         }
 
         const speed = v.length();
@@ -2367,13 +2402,13 @@ function step(dt) {
     applySoloIndependence();
 
     bubbleAudio.setEventGenerator(() => { // EN: Map current school state to audio parameters for bubble sound synthesis.
-        return {
-          pan: audioState.pan,
-          depth01: audioState.depth01,
-          rate: audioState.rate,
-          freq: 220
-        };
-      });
+      return {
+        pan: audioState.pan,
+        depth01: audioState.depth01,
+        rate: audioState.rate,
+        freq: audioState.freq
+      };
+    });
 
     // EN: Start with debug visuals hidden. Use the always-visible DEBUG button or D key to show them.
     applyDebugVisibility();
@@ -2393,6 +2428,36 @@ function step(dt) {
       const disagreement01 = clamp(Math.pow(1 - dirCoh01, 0.45) * 1.35, 0, 1);
       const overlapFromCoherence = 0.05 + 0.65 * dirCoh01;
 
+      // EN: Sample the active leader trajectory directly for Doppler mapping.
+      // EN: pathBlend[0] selects whether audio follows Path A, Path B, or their blend.
+      const leaderSampleA = samplePathAtU(pathLeaderU);
+      const leaderSampleB = samplePathAtUB(pathLeaderUB);
+
+      const leaderPos = leaderSampleA.pos.clone().lerp(leaderSampleB.pos, pathBlend[0]);
+      const leaderTan = leaderSampleA.tan.clone().lerp(leaderSampleB.tan, pathBlend[0]).normalize();
+
+      const leaderSpeed = lerp(
+        params.pathLeaderSpeed,
+        runtimeState.pathLeaderSpeedB * pathBEnvelopeNow,
+        pathBlend[0]
+      );
+
+      const leaderVelocity = leaderTan.clone().multiplyScalar(leaderSpeed);
+
+      // EN: Positive radial velocity means motion toward the listener/camera.
+      const toCamera = camera.position.clone().sub(leaderPos);
+      if (toCamera.lengthSq() > 1e-8) {
+        toCamera.normalize();
+      } else {
+        toCamera.set(0, 0, 1);
+      }
+
+      const radialVelocity = leaderVelocity.dot(toCamera);
+
+      // EN: Pseudo-Doppler mapping in musical units.
+      // EN: Clamp to ±4 semitones for clearly audible but still controlled motion.
+      const dopplerSemis = clamp(radialVelocity * 1.85, -4, 4);
+
       return {
         fishIndex: i,
         effMean01,
@@ -2401,7 +2466,9 @@ function step(dt) {
         disagreement01,
         overlapFromCoherence,
         panSourceX: V[i].x,
-        pathBlend01: clamp01(pathBlend[0])
+        pathBlend01: clamp01(pathBlend[0]),
+        radialVelocity,
+        dopplerSemis
       };
     }
 
@@ -2409,35 +2476,41 @@ function step(dt) {
     // EN: Translate simulation metrics into audio-engine controls.
       // EN: Keep this as the only place where the host app maps fish behavior to sound behavior.
     function updateAudioBridge() {
-        const metrics = getSimulationAudioMetrics();
+      const metrics = getSimulationAudioMetrics();
 
-        audioState.pan = clamp(metrics.panSourceX / 0.6, -1, 1);
-        audioState.depth01 = 0.15 + 0.70 * metrics.pathBlend01;
-        audioState.rate = 1 + 11 * Math.pow(metrics.effMean01, 1.15);
-        audioState.volume = clamp(0.06 + 0.62 * Math.pow(metrics.effMax01, 1.3), 0, 0.9);
+      audioState.pan = clamp(metrics.panSourceX / 0.6, -1, 1);
+      audioState.depth01 = 0.15 + 0.70 * metrics.pathBlend01;
+      audioState.rate = 1 + 11 * Math.pow(metrics.effMean01, 1.15);
+      audioState.volume = clamp(0.06 + 0.62 * Math.pow(metrics.effMax01, 1.3), 0, 0.9);
 
-        const audioNow = performance.now();
-        if (audioNow - audioState.lastPushMs > audioState.pushIntervalMs) {
-          console.log(
-            "audio",
-            "dirCoh=", metrics.dirCoh01.toFixed(2),
-            "dissonance=", metrics.disagreement01.toFixed(2),
-            "rate=", audioState.rate.toFixed(2),
-            "overlap=", metrics.overlapFromCoherence.toFixed(2)
-          );
+      // EN: Keep a stable base pitch, then apply leader-based Doppler as a semitone offset.
+      const baseFreq = 220;
+      audioState.freq = baseFreq * semitoneRatio(metrics.dopplerSemis);
 
-          bubbleAudio.setControls({
-            pan: audioState.pan,
-            depth01: audioState.depth01,
-            rate: audioState.rate,
-            volume: audioState.volume,
-            overlap: metrics.overlapFromCoherence,
-            dissonance: metrics.disagreement01
-          });
+      const audioNow = performance.now();
+      if (audioNow - audioState.lastPushMs > audioState.pushIntervalMs) {
+        console.log(
+          "audio",
+          "dirCoh=", metrics.dirCoh01.toFixed(2),
+          "dissonance=", metrics.disagreement01.toFixed(2),
+          "rate=", audioState.rate.toFixed(2),
+          "overlap=", metrics.overlapFromCoherence.toFixed(2),
+          "dopplerSemis=", metrics.dopplerSemis.toFixed(2),
+          "freq=", audioState.freq.toFixed(2)
+        );
 
-          audioState.lastPushMs = audioNow;
-        }
+        bubbleAudio.setControls({
+          pan: audioState.pan,
+          depth01: audioState.depth01,
+          rate: audioState.rate,
+          volume: audioState.volume,
+          overlap: metrics.overlapFromCoherence,
+          dissonance: metrics.disagreement01
+        });
+
+        audioState.lastPushMs = audioNow;
       }
+    }
 
     let lastT = performance.now();
     function loop(t) {
