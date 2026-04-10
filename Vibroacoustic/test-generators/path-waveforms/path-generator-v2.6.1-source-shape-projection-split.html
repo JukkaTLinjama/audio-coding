@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Path loop gen v2.6.1 (source shape + projection split)</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin:0; height:100%; background:#0b0d10; color:#e8eef7; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #app { display:grid; grid-template-columns: 320px 1fr; height:100%; }
+@media (max-width: 900px){ #app{ grid-template-columns: 300px 1fr; } }
+@media (max-width: 720px){ #app{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; } #panel{ border-right:none; border-bottom:1px solid rgba(255,255,255,.08);} }
+    #panel {
+      padding:14px 14px 10px;
+      border-right: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      overflow:auto;
+    }
+    h1 { font-size:16px; margin:0 0 10px; font-weight:650; }
+    .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
+    .row > label { flex:1; font-size:11px; opacity:.92; }
+    .row input[type="range"]{ width:100%; height:18px; }
+    .val { width:54px; text-align:right; font-variant-numeric: tabular-nums; opacity:.9; font-size:11px; }
+    button {
+      background:#1f2937; color:#e8eef7; border:1px solid rgba(255,255,255,.14);
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+    }
+    button:active { transform: translateY(1px); }
+    #view { position:relative; }
+    #three { position:absolute; inset:0; }
+    #three canvas { width:100% !important; height:100% !important; display:block; }
+    #outScopeWrap { position:absolute; left:12px; right:12px; bottom:144px; height:92px; pointer-events:none; }
+#scopeWrap { position:absolute; left:12px; right:12px; bottom:12px; height:120px; pointer-events:none; }
+    #outScope{
+      width:100%; height:100%;
+      border-radius:14px;
+      background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+#scope {
+      width:100%; height:100%;
+      border-radius:14px;
+      background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+    .scopeLabel {
+      position:absolute;
+      left:24px;
+      color: rgba(255,255,255,.78);
+      font-size:11px;
+      font-variant-numeric: tabular-nums;
+      pointer-events:none;
+      text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    }
+    #outScopeLabel { bottom: 242px; }
+    #scopeLabel { bottom: 138px; }
+    #hud {
+      position:absolute; left:12px; top:12px; padding:8px 10px;
+      border-radius:12px; background: rgba(0,0,0,.35);
+      outline: 1px solid rgba(255,255,255,.10);
+      font-size:12px; white-space:pre; font-variant-numeric: tabular-nums;
+      pointer-events:none;
+    }
+    .hint { font-size:12px; opacity:.75; line-height:1.35; margin-top:10px; }
+    .hr { height:1px; background:rgba(255,255,255,.08); margin:12px 0; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="panel">
+      <h1 id="title"></h1>
+
+      <div class="row">
+        <button id="btnStart">Start</button>
+        <button id="btnStop">Stop</button>
+      </div>
+
+      <div class="row">
+        <label>Frequency (Hz) <span class="val" id="speedVal"></span></label>
+        <input id="speedHz" type="range" min="0.50" max="60.0" step="0.10" value="20.00" />
+      </div>
+
+      
+      <div class="row">
+        <label>Grains / loop <span class="val" id="gplVal"></span></label>
+        <input id="grainsPerLoop" type="range" min="0.2" max="50" step="0.1" value="12.0" />
+      </div>
+
+      <div class="row">
+        <label>Overlap <span class="val" id="ovVal"></span></label>
+        <input id="overlap" type="range" min="0.00" max="0.85" step="0.01" value="0.25" />
+      </div>
+
+      <div class="row">
+        <label>Grain (ms) <span class="val" id="grainMsVal"></span></label>
+        <input id="grainMsRO" type="range" min="1" max="250" step="1" value="50" disabled />
+      </div>
+<div class="row">
+        <label>Volume <span class="val" id="volVal"></span></label>
+        <input id="vol" type="range" min="0" max="0.8" step="0.001" value="0.12" />
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label>Path radius <span class="val" id="rVal"></span></label>
+        <input id="pathRadius" type="range" min="1" max="20" step="0.1" value="7" />
+      </div>
+      <div class="row">
+        <label>Path jitter <span class="val" id="jVal"></span></label>
+        <input id="pathJitter" type="range" min="0" max="10" step="0.1" value="2.2" />
+      </div>
+      <div class="row">
+        <label>Z amplitude <span class="val" id="zVal"></span></label>
+        <input id="pathZAmplitude" type="range" min="0" max="20" step="0.1" value="6" />
+      </div>
+      <div class="row">
+        <label>Control points <span class="val" id="mVal"></span></label>
+        <input id="pathControlPoints" type="range" min="4" max="40" step="1" value="9" />
+      </div>
+      <div class="row">
+        <button id="btnSourceShape">Source shape: Random</button>
+        <button id="btnRegenSource">Regenerate</button>
+      </div>
+      <div class="row">
+        <button id="btnNewRandomPath">Gen new random path</button>
+        <button id="btnPulsePath">Gen pulse path</button>
+      </div>
+      <div class="row">
+        <button id="btnSignalAxis">Signal axis: View Y</button>
+        <button id="btnProjWarp">Playback warp: Off</button>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="hint">
+        EN: v2.6.1 separates source shape from signal projection. Source shape can be Random or Pulse. Signal projection and playback warp remain independent, and playback warp still happens only at playback.
+      </div>
+    </div>
+
+    <div id="view">
+      <div id="three"></div>
+      <div id="hud"></div>
+      <div id="outScopeLabel" class="scopeLabel">Warped source reference</div>
+      <div id="scopeLabel" class="scopeLabel">Output waveform</div>
+      <div id="outScopeWrap"><canvas id="outScope"></canvas></div>
+      <div id="scopeWrap"><canvas id="scope"></canvas></div>
+    </div>
+  </div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+/* -------------------- DOM refs -------------------- */
+const titleEl = document.getElementById("title");
+const hudEl = document.getElementById("hud");
+const scope = document.getElementById("scope");
+const outScope = document.getElementById("outScope");
+
+const btnStart = document.getElementById("btnStart");
+const btnStop = document.getElementById("btnStop");
+
+const speedHzEl = document.getElementById("speedHz");
+const grainsPerLoopEl = document.getElementById("grainsPerLoop");
+const overlapEl = document.getElementById("overlap");
+const grainMsROEl = document.getElementById("grainMsRO");
+const volEl = document.getElementById("vol");
+
+const pathRadiusEl = document.getElementById("pathRadius");
+const pathJitterEl = document.getElementById("pathJitter");
+const pathZAmplitudeEl = document.getElementById("pathZAmplitude");
+const pathControlPointsEl = document.getElementById("pathControlPoints");
+const btnSourceShape = document.getElementById("btnSourceShape");
+const btnRegenSource = document.getElementById("btnRegenSource");
+const btnNewRandomPath = document.getElementById("btnNewRandomPath");
+const btnPulsePath = document.getElementById("btnPulsePath");
+const btnSignalAxis = document.getElementById("btnSignalAxis");
+const btnProjWarp = document.getElementById("btnProjWarp");
+
+const speedVal = document.getElementById("speedVal");
+const gplVal = document.getElementById("gplVal");
+const ovVal = document.getElementById("ovVal");
+const grainMsVal = document.getElementById("grainMsVal");
+const volVal = document.getElementById("volVal");
+const rVal = document.getElementById("rVal");
+const jVal = document.getElementById("jVal");
+const zVal = document.getElementById("zVal");
+const mVal = document.getElementById("mVal");
+
+/* -------------------- params (UI -> engines) -------------------- */
+// EN: Single source of truth for parameters. UI writes here; engines read here.
+const params = {
+  speedHz: +speedHzEl.value,
+  volume: +volEl.value,
+
+  // Path
+  pathRadius: +pathRadiusEl.value,
+  pathJitter: +pathJitterEl.value,
+  pathZAmplitude: +pathZAmplitudeEl.value,
+  pathControlPoints: Math.max(4, Math.floor(+pathControlPointsEl.value)),
+
+  // Granular
+  sourceLen: 4000,        // EN: 3D curve sampled into this many points
+  grainsPerLoop: +grainsPerLoopEl.value, // EN: grains scheduled per one source cycle
+  overlap: +overlapEl.value,  // EN: 0..0.85 (hop = (1-overlap)*grainLen)
+  sourceMaxUpdateHz: 5, // EN: cap source buffer recompute frequency
+
+  // EN: Source geometry + signal extraction + playback warp
+  sourceShape: "pulse",   // EN: "random" | "pulse"
+  signalAxis: "sourceZ",  // EN: "sourceZ" | "displayY"
+  playbackWarpMode: "auto" // EN: "off" | "auto"
+};
+
+function updateModeButtons() {
+  btnSourceShape.textContent = `Source shape: ${params.sourceShape === "pulse" ? "Pulse" : "Random"}`;
+  btnSignalAxis.textContent = `Signal axis: ${params.signalAxis === "sourceZ" ? "Source Z" : "Display Y"}`;
+  btnProjWarp.textContent = `Projection warp: ${params.playbackWarpMode === "auto" ? "On" : "Off"}`;
+}
+
+function updateLabels(derivedGrainMs = null) {
+  speedVal.textContent = params.speedHz.toFixed(2);
+  gplVal.textContent = params.grainsPerLoop.toFixed(1);
+  ovVal.textContent = params.overlap.toFixed(2);
+  volVal.textContent = params.volume.toFixed(3);
+
+  // EN: Show the derived grain length (ms) even though the control is in grains/loop.
+  const ms = (derivedGrainMs != null) ? derivedGrainMs : 0;
+  grainMsVal.textContent = ms ? ms.toFixed(1) : "—";
+  if (ms) grainMsROEl.value = Math.max(1, Math.min(250, ms));
+
+  rVal.textContent = params.pathRadius.toFixed(1);
+  jVal.textContent = params.pathJitter.toFixed(1);
+  zVal.textContent = params.pathZAmplitude.toFixed(1);
+  mVal.textContent = String(params.pathControlPoints);
+
+  updateModeButtons();
+}
+
+/* -------------------- Three.js visualization -------------------- */
+const container = document.getElementById("three");
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+container.appendChild(renderer.domElement);
+renderer.domElement.style.width = '100%';
+renderer.domElement.style.height = '100%'; // EN: ensure canvas fills container
+
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d10);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
+camera.position.set(0, 10, 85);
+camera.lookAt(0, 6, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+dl.position.set(20, 30, 40);
+scene.add(dl);
+
+let curve = null;
+let curveLine = null;
+
+// EN: Wrap angle to [-PI, PI] so "distance around circle" is symmetric.
+function wrapToPi(a) {
+  let x = (a + Math.PI) % (Math.PI * 2);
+  if (x < 0) x += Math.PI * 2;
+  return x - Math.PI;
+}
+
+// EN: Ricker (Mexican hat) wavelet: symmetric and DC-neutral.
+function ricker(t, sigma) {
+  const s2 = sigma * sigma;
+  const u2 = (t * t) / s2;
+  return (1 - u2) * Math.exp(-0.5 * u2);
+}
+
+// EN: Desired path: perfect circle in XY + DC-neutral symmetric pulse in Z.
+function buildPulseCurve() {
+  // EN: For the pulse shape we want enough points so the spline does not distort symmetry.
+  // The UI "Control points" still affects it, but we enforce a sensible minimum.
+  const M = Math.max(64, params.pathControlPoints);
+
+  const R = params.pathRadius;
+  const Z = params.pathZAmplitude;
+
+  // EN: Pulse width in radians. Smaller => narrower / shorter pulse.
+  const sigma = 0.28;
+
+  // EN: Place pulse at 90 degrees (PI/2) so it sits visually near the middle (+Y direction).
+  const centerA = Math.PI / 2;
+
+  const pts = [];
+  for (let i = 0; i < M; i++) {
+    const a = (i / M) * Math.PI * 2;
+
+    // Base circle in XY
+    const x = Math.cos(a) * R;
+    const y = Math.sin(a) * R;
+
+    // DC-neutral symmetric Z pulse (Ricker / Mexican-hat wavelet)
+    const da = wrapToPi(a - centerA);
+    const z = Z * ricker(da, sigma);
+
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+
+  // EN: "centripetal" reduces Catmull-Rom overshoot and preserves symmetry better.
+  return new THREE.CatmullRomCurve3(pts, true, "centripetal", 0.5);
+}
+
+function buildRandomClosedCurve() {
+  const M = params.pathControlPoints;
+  const R = params.pathRadius;
+  const J = params.pathJitter;
+  const Z = params.pathZAmplitude;
+
+  const pts = [];
+  for (let i = 0; i < M; i++) {
+    const a = (i / M) * Math.PI * 2;
+    const x = Math.cos(a) * R + (Math.random() * 2 - 1) * J;
+    const y = Math.sin(a) * R + (Math.random() * 2 - 1) * J;
+    const z = (Math.random() * 2 - 1) * Z;
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  return new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+}
+
+let rotYaw = 0;
+let rotPitch = 0;
+
+// EN: Current generation mode. Sliders change params but do not regenerate until user clicks a button.
+let curveMode = params.sourceShape;
+
+function rebuildCurve(mode = params.sourceShape) {
+  curveMode = mode;
+  params.sourceShape = mode;
+  curve = (mode === "pulse") ? buildPulseCurve() : buildRandomClosedCurve();
+    if (curveLine) {
+    scene.remove(curveLine);
+    curveLine.geometry.dispose();
+    curveLine.material.dispose();
+    curveLine = null;
+  }
+
+  const geom = new THREE.BufferGeometry().setFromPoints(curve.getPoints(250));
+  const mat = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent:true, opacity:0.85 });
+  curveLine = new THREE.Line(geom, mat);
+  curveLine.position.y = 6; // EN: lift curve in view (avoid scope overlay)
+  scene.add(curveLine);
+
+  requestSourceRebuild();
+}
+
+/* -------------------- Pointer rotation -------------------- */
+let dragging = false;
+let lastX = 0, lastY = 0;
+container.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  container.setPointerCapture(e.pointerId);
+});
+container.addEventListener("pointerup", (e) => {
+  dragging = false;
+  container.releasePointerCapture(e.pointerId);
+});
+container.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+
+  rotYaw += dx * 0.006;
+  rotPitch += dy * 0.006;
+
+  // EN: Source depends on rotation -> request slow rebuild (capped).
+  requestSourceRebuild();
+});
+
+/* -------------------- Source buffer from 3D curve (slow) -------------------- */
+let sourceY = new Float32Array(params.sourceLen);
+let lastSourceBuildAt = 0;
+let sourceDirty = true;
+
+// EN: Playback warp LUT: normalized projection arc-length p -> source phase u.
+let warpCum = new Float32Array([0, 1]);
+let warpU = new Float32Array([0, 1]);
+
+function requestSourceRebuild() {
+  sourceDirty = true;
+}
+
+function buildPlaybackWarpLUT(euler) {
+  if (!curve) {
+    warpCum = new Float32Array([0, 1]);
+    warpU = new Float32Array([0, 1]);
+    return;
+  }
+
+  const N = Math.max(256, params.sourceLen);
+  const pts = new Array(N + 1);
+  let total = 0;
+
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const p = curve.getPointAt(u);
+    if (params.signalAxis === "displayY") p.applyEuler(euler);
+    pts[i] = p;
+  }
+
+  const cum = new Float32Array(N + 1);
+  const uu = new Float32Array(N + 1);
+
+  cum[0] = 0;
+  uu[0] = 0;
+
+  for (let i = 1; i <= N; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+
+    let ds = 1 / N;
+    if (params.playbackWarpMode === "auto") {
+      if (params.signalAxis === "sourceZ") {
+        // EN: Source-space Z signal, sweep by source XY arc length.
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        ds = Math.hypot(dx, dy);
+      } else {
+        // EN: Display-space Y signal, sweep mainly by display X travel.
+        // Use |dx| so backtracking in X still advances phase.
+        // Add a small floor from segment length so near-vertical parts stay finite.
+        const dx = Math.abs(b.x - a.x);
+        const dy = b.y - a.y;
+        const segLen = Math.hypot(b.x - a.x, dy);
+        ds = Math.max(dx, segLen * 0.06);
+      }
+    }
+
+    total += ds;
+    cum[i] = total;
+    uu[i] = i / N;
+  }
+
+  if (total <= 1e-9) {
+    for (let i = 0; i <= N; i++) cum[i] = i / N;
+  } else {
+    const inv = 1 / total;
+    for (let i = 0; i <= N; i++) cum[i] *= inv;
+  }
+
+  warpCum = cum;
+  warpU = uu;
+}
+
+function getSignalComponent(p, euler = null) {
+  if (params.signalAxis === "sourceZ") {
+    return p.z;
+  }
+  const q = p.clone();
+  if (euler) q.applyEuler(euler);
+  return q.y;
+}
+
+function rebuildSourceIfDue(nowMs) {
+  if (!sourceDirty || !curve) return;
+
+  const minIntervalMs = 1000 / Math.max(0.2, params.sourceMaxUpdateHz);
+  if (nowMs - lastSourceBuildAt < minIntervalMs) return;
+
+  lastSourceBuildAt = nowMs;
+  sourceDirty = false;
+
+  const euler = new THREE.Euler(rotPitch, rotYaw, 0, "XYZ");
+  const N = params.sourceLen;
+  let maxAbs = 1e-9;
+
+  buildPlaybackWarpLUT(euler);
+
+  for (let i = 0; i < N; i++) {
+    const u = i / N;
+    const p = curve.getPointAt(u);
+    const v = getSignalComponent(p, euler);
+    sourceY[i] = v;
+    const a = Math.abs(v);
+    if (a > maxAbs) maxAbs = a;
+  }
+
+  // EN: Normalize source to [-1, 1] for stable gain staging.
+  const inv = 1 / maxAbs;
+  for (let i = 0; i < N; i++) sourceY[i] *= inv;
+
+  drawSourceWaveform();
+  drawOutputWaveform();
+}
+
+/* -------------------- Scope drawing (source) -------------------- */
+const sctx = outScope.getContext("2d");
+const octx = scope.getContext("2d");
+
+function resizeScope() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+
+  const r1 = outScope.getBoundingClientRect();
+  outScope.width = Math.max(1, Math.floor(r1.width * dpr));
+  outScope.height = Math.max(1, Math.floor(r1.height * dpr));
+
+  const r2 = scope.getBoundingClientRect();
+  scope.width = Math.max(1, Math.floor(r2.width * dpr));
+  scope.height = Math.max(1, Math.floor(r2.height * dpr));
+}
+window.addEventListener("resize", () => { resizeAll(); });
+
+function drawSourceWaveform() {
+  if (!sctx) return;
+
+  const w = scope.width;
+  const h = scope.height;
+
+  sctx.clearRect(0, 0, w, h);
+
+  // Background grid
+  sctx.globalAlpha = 1;
+  sctx.lineWidth = 1;
+  sctx.strokeStyle = "rgba(255,255,255,0.08)";
+  for (let i = 1; i < 8; i++) {
+    const x = (i / 8) * w;
+    sctx.beginPath();
+    sctx.moveTo(x, 0);
+    sctx.lineTo(x, h);
+    sctx.stroke();
+  }
+  for (let i = 1; i < 4; i++) {
+    const y = (i / 4) * h;
+    sctx.beginPath();
+    sctx.moveTo(0, y);
+    sctx.lineTo(w, y);
+    sctx.stroke();
+  }
+
+  // Wave
+  sctx.strokeStyle = "rgba(190, 235, 255, 0.95)";
+  sctx.lineWidth = 2;
+
+  sctx.beginPath();
+  for (let x = 0; x < w; x++) {
+    const phase = x / Math.max(1, (w - 1));
+    const u = warpPhaseToSourceU(phase);
+    const yv = sampleSource(u);
+
+    const yy = (0.5 - 0.45 * yv) * h;
+    if (x === 0) sctx.moveTo(x, yy);
+    else sctx.lineTo(x, yy);
+  }
+  sctx.stroke();
+
+  // Centerline
+  sctx.strokeStyle = "rgba(255,255,255,0.12)";
+  sctx.lineWidth = 1;
+  sctx.beginPath();
+  sctx.moveTo(0, h * 0.5);
+  sctx.lineTo(w, h * 0.5);
+  sctx.stroke();
+}
+
+
+function drawOutputWaveform() {
+  if (!octx) return;
+
+  const w = outScope.width;
+  const h = outScope.height;
+
+  octx.clearRect(0, 0, w, h);
+
+  // EN: Light grid + centerline
+  octx.lineWidth = 1;
+  octx.strokeStyle = "rgba(255,255,255,0.08)";
+  for (let i = 1; i < 8; i++) {
+    const x = (i / 8) * w;
+    octx.beginPath();
+    octx.moveTo(x, 0);
+    octx.lineTo(x, h);
+    octx.stroke();
+  }
+  octx.strokeStyle = "rgba(255,255,255,0.12)";
+  octx.beginPath();
+  octx.moveTo(0, h * 0.5);
+  octx.lineTo(w, h * 0.5);
+  octx.stroke();
+
+  if (!ctx || !analyser || !outTimeData) return;
+
+  analyser.getFloatTimeDomainData(outTimeData);
+
+  // EN: Soft autoscale for readability (not a true meter).
+  let maxAbs = 1e-6;
+  for (let i = 0; i < outTimeData.length; i++) {
+    const a = Math.abs(outTimeData[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const inv = 1 / maxAbs;
+
+  octx.strokeStyle = "rgba(255, 220, 190, 0.95)";
+  octx.lineWidth = 2;
+
+  octx.beginPath();
+  const N = outTimeData.length;
+  for (let x = 0; x < w; x++) {
+    const t = x / (w - 1);
+    const idx = t * (N - 1);
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(N - 1, i0 + 1);
+    const a = idx - i0;
+    const yv = outTimeData[i0] * (1 - a) + outTimeData[i1] * a;
+
+    const yy = (0.5 - 0.45 * (yv * inv)) * h;
+    if (x === 0) octx.moveTo(x, yy);
+    else octx.lineTo(x, yy);
+  }
+  octx.stroke();
+
+  const winSec = N / ctx.sampleRate;
+  octx.fillStyle = "rgba(255,255,255,0.75)";
+  octx.font = `${Math.max(10, Math.floor(h * 0.18))}px ui-sans-serif, system-ui`;
+  octx.fillText(`actual output ~${(winSec * 1000).toFixed(0)} ms`, 10, Math.max(14, Math.floor(h * 0.22)));
+}
+
+/* -------------------- Granular audio engine -------------------- */
+let ctx = null;
+let masterGain = null;
+let analyser = null; // EN: tap post-master output for waveform display
+let outTimeData = null; // EN: analyser.getFloatTimeDomainData target
+
+let isOn = false;
+let schedulerTimer = null;
+let nextGrainTime = 0;
+let uPhase = 0; // EN: playback phase in cycles (0..1 wraps)
+
+/**
+ * EN: Sample the source buffer with wrap + linear interpolation.
+ * u is in "cycles" (0..1), wrap automatically.
+ */
+function sampleSource(u) {
+  const N = sourceY.length;
+  let uu = u % 1;
+  if (uu < 0) uu += 1;
+
+  const f = uu * (N - 1);
+  const i0 = Math.floor(f);
+  const i1 = (i0 + 1) % N;
+  const a = f - i0;
+  return sourceY[i0] * (1 - a) + sourceY[i1] * a;
+}
+
+function warpPhaseToSourceU(phase) {
+  let p = phase % 1;
+  if (p < 0) p += 1;
+
+  if (params.playbackWarpMode === "off" || !warpCum || warpCum.length < 2) return p;
+
+  let lo = 0;
+  let hi = warpCum.length - 1;
+
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (warpCum[mid] <= p) lo = mid;
+    else hi = mid;
+  }
+
+  const p0 = warpCum[lo];
+  const p1 = warpCum[hi];
+  const u0 = warpU[lo];
+  const u1 = warpU[hi];
+  const span = Math.max(1e-9, p1 - p0);
+  const a = (p - p0) / span;
+  return u0 * (1 - a) + u1 * a;
+}
+
+/**
+ * EN: Create one grain buffer (mono) using Hann window.
+ */
+function makeGrainBuffer(grainLen, sampleRate, startPhase, speedHz) {
+  const buf = ctx.createBuffer(1, grainLen, sampleRate);
+  const ch = buf.getChannelData(0);
+
+  // EN: Convert speed (cycles/sec) to phase increment per sample.
+  const dp = speedHz / sampleRate;
+
+  // EN: Hann window for smooth overlap-add.
+  const invN = 1 / Math.max(1, (grainLen - 1));
+  for (let i = 0; i < grainLen; i++) {
+    const phase = startPhase + i * dp;
+    const u = warpPhaseToSourceU(phase);
+    const y = sampleSource(u);
+
+    const t = i * invN;
+    const win = 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+    ch[i] = y * win;
+  }
+  return buf;
+}
+
+function ensureAudio() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  masterGain = ctx.createGain();
+  masterGain.gain.value = params.volume;
+
+  // EN: Insert an AnalyserNode in the output chain so we can draw the actual output waveform.
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 16384; // EN: larger = longer visible time window
+  outTimeData = new Float32Array(analyser.fftSize);
+
+  masterGain.connect(analyser);
+  analyser.connect(ctx.destination);
+}
+
+function startAudio() {
+  ensureAudio();
+  if (!curve) rebuildCurve(curveMode);
+
+  isOn = true;
+  uPhase = 0;
+  nextGrainTime = ctx.currentTime + 0.05;
+
+  // EN: Schedule with small lookahead to avoid glitches.
+  if (schedulerTimer) clearInterval(schedulerTimer);
+  schedulerTimer = setInterval(schedulerTick, 25);
+}
+
+function stopAudio() {
+  isOn = false;
+  if (schedulerTimer) clearInterval(schedulerTimer);
+  schedulerTimer = null;
+}
+
+
+function computeDerivedGrain(sr) {
+  // EN: Convert musical control (grains/loop) to hop and grain length.
+  // loopDurationSec = 1 / speedHz (one full source cycle)
+  // hopSec = loopDurationSec / grainsPerLoop
+  // grainLenSec = hopSec / (1 - overlap)
+  const speedHz = Math.max(0.001, params.speedHz);
+  const gpl = Math.max(0.2, params.grainsPerLoop);
+  const ov = Math.min(0.85, Math.max(0.0, params.overlap));
+
+  const loopSec = 1 / speedHz;
+  const hopSec = loopSec / gpl;
+  const grainSec = hopSec / Math.max(0.05, (1 - ov)); // EN: guard against ov->1
+
+  const grainLen = Math.max(64, Math.floor(grainSec * sr));
+  const hopLen = Math.max(1, Math.floor(hopSec * sr));
+
+  return { grainLen, hopLen, grainMs: (grainLen / sr) * 1000, hopMs: (hopLen / sr) * 1000 };
+}
+
+function schedulerTick() {
+  if (!isOn || !ctx) return;
+
+  // EN: Slow source rebuild capped at max 5 Hz.
+  rebuildSourceIfDue(performance.now());
+
+  const sr = ctx.sampleRate;
+  const d = computeDerivedGrain(sr);
+  const grainLen = d.grainLen;
+  const hopLen = d.hopLen;
+  const hopSec = hopLen / sr;
+
+  // EN: Keep UI in sync with the derived grain length.
+  updateLabels(d.grainMs);
+
+  const lookaheadSec = 0.15;
+
+  while (nextGrainTime < ctx.currentTime + lookaheadSec) {
+    const buf = makeGrainBuffer(grainLen, sr, uPhase, params.speedHz);
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    const g = ctx.createGain();
+    g.gain.value = 1.0;
+
+    src.connect(g);
+    g.connect(masterGain);
+
+    src.start(nextGrainTime);
+
+    // EN: Advance playback phase by hop size. Warp is applied inside grain rendering.
+    const dp = params.speedHz / sr;
+    uPhase += hopLen * dp;
+
+    nextGrainTime += hopSec;
+  }
+}
+
+/* -------------------- UI events -------------------- */
+btnStart.onclick = async () => {
+  ensureAudio();
+  await ctx.resume();
+  startAudio();
+};
+
+btnStop.onclick = () => {
+  stopAudio();
+};
+
+speedHzEl.oninput = () => {
+  params.speedHz = +speedHzEl.value;
+  updateLabels(computeDerivedGrain(48000).grainMs);
+};
+
+grainsPerLoopEl.oninput = () => {
+  params.grainsPerLoop = +grainsPerLoopEl.value;
+
+  // EN: Update labels using a best-effort sample rate when audio is off.
+  const sr = ctx ? ctx.sampleRate : 48000;
+  const d = computeDerivedGrain(sr);
+  updateLabels(d.grainMs);
+};
+
+overlapEl.oninput = () => {
+  params.overlap = +overlapEl.value;
+
+  const sr = ctx ? ctx.sampleRate : 48000;
+  const d = computeDerivedGrain(sr);
+  updateLabels(d.grainMs);
+};
+
+
+volEl.oninput = () => {
+  params.volume = +volEl.value;
+  updateLabels();
+  if (masterGain && ctx) masterGain.gain.setTargetAtTime(params.volume, ctx.currentTime, 0.03);
+};
+
+function schedulePathRebuild() {
+  params.pathRadius = +pathRadiusEl.value;
+  params.pathJitter = +pathJitterEl.value;
+  params.pathZAmplitude = +pathZAmplitudeEl.value;
+  params.pathControlPoints = Math.max(4, Math.floor(+pathControlPointsEl.value));
+  updateLabels();
+
+  // EN: Do NOT rebuild the curve on slider moves.
+  // Changes apply only when user clicks a "Gen ..." button.
+}
+
+pathRadiusEl.oninput = schedulePathRebuild;
+pathJitterEl.oninput = schedulePathRebuild;
+pathZAmplitudeEl.oninput = schedulePathRebuild;
+pathControlPointsEl.oninput = schedulePathRebuild;
+
+btnSourceShape.onclick = () => {
+  const next = (params.sourceShape === "pulse") ? "random" : "pulse";
+  rebuildCurve(next);
+  updateLabels();
+};
+
+btnRegenSource.onclick = () => {
+  rebuildCurve(params.sourceShape);
+  updateLabels();
+};
+
+btnNewRandomPath.onclick = () => {
+  rebuildCurve("random");
+  updateLabels();
+};
+
+btnPulsePath.onclick = () => {
+  rebuildCurve("pulse");
+  updateLabels();
+};
+
+btnSignalAxis.onclick = () => {
+  params.signalAxis = (params.signalAxis === "sourceZ") ? "displayY" : "sourceZ";
+  updateLabels();
+  requestSourceRebuild();
+};
+
+btnProjWarp.onclick = () => {
+  params.playbackWarpMode = (params.playbackWarpMode === "off") ? "auto" : "off";
+  updateLabels();
+  requestSourceRebuild();
+};
+
+/* -------------------- Resize + loop -------------------- */
+function resizeAll() {
+  const rect = container.getBoundingClientRect();
+  renderer.setSize(rect.width, rect.height, true);
+  camera.aspect = rect.width / Math.max(1, rect.height);
+  camera.updateProjectionMatrix();
+  resizeScope();
+  drawSourceWaveform();
+  drawOutputWaveform();
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // EN: Keep source buffer fresh (capped) even when audio is off, so scope stays updated.
+  rebuildSourceIfDue(performance.now());
+
+  if (curveLine) {
+    curveLine.rotation.y = rotYaw;
+    curveLine.rotation.x = rotPitch;
+  }
+
+    const sr = ctx ? ctx.sampleRate : 0;
+  const d = (sr ? computeDerivedGrain(sr) : null);
+  hudEl.textContent =
+`granular v2.6.1
+freqHz=${params.speedHz.toFixed(2)}  volume=${params.volume.toFixed(3)}
+grainsPerLoop=${params.grainsPerLoop.toFixed(1)}  overlap=${params.overlap.toFixed(2)}
+source=${params.sourceShape}  signal=${params.signalAxis}  warp=${params.playbackWarpMode === "auto" ? "proj" : "off"}
+grain≈${d ? d.grainMs.toFixed(1) : "—"}ms  hop≈${d ? d.hopMs.toFixed(1) : "—"}ms
+sourceLen=${params.sourceLen}  sourceUpd<=${params.sourceMaxUpdateHz}/s
+audioSR=${sr}`;
+
+  drawOutputWaveform();
+
+  renderer.render(scene, camera);
+}
+
+titleEl.textContent = document.title;
+params.sourceShape = "pulse";
+params.signalAxis = "sourceZ";
+params.playbackWarpMode = "auto";
+updateLabels();
+rebuildCurve(params.sourceShape);
+resizeAll();
+animate();
+</script>
+</body>
+</html>
