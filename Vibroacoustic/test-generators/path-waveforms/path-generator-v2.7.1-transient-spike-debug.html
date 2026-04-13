@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Path loop gen v2.6.5 (detach smooth toggle)</title>
+  <title>Path loop gen v2.7.1 (transient spike debug)</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#0b0d10; color:#e8eef7; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -137,7 +137,7 @@
       <div class="hr"></div>
 
       <div class="hint">
-        EN: v2.6.3 adds an optional detach distortion layer at playback. The source scope now overlays the realized one-cycle playback preview on top of the projected source reference.
+        EN: v2.7.1 debug build. Triggered transient spikes are visualized in the source preview, with higher sensitivity than the micro-slip prototype.
       </div>
     </div>
 
@@ -221,7 +221,7 @@ function updateModeButtons() {
   btnSourceShape.textContent = `Source shape: ${params.sourceShape === "pulse" ? "Pulse" : "Random"}`;
   btnSignalAxis.textContent = `Signal axis: ${params.signalAxis === "sourceZ" ? "Source Z" : "Display Y"}`;
   btnProjWarp.textContent = `Projection warp: ${params.playbackWarpMode === "auto" ? "On" : "Off"}`;
-  btnDetachDist.textContent = `Detach distortion: ${params.detachDistortion ? "On" : "Off"}`;
+  btnDetachDist.textContent = `Transient spikes: ${params.detachDistortion ? "On" : "Off"}`;
 }
 
 function updateLabels(derivedGrainMs = null) {
@@ -522,12 +522,13 @@ function renderRealizedCyclePreview(numSamples) {
   const sr = ctx ? ctx.sampleRate : 48000;
   const preview = new Float32Array(numSamples);
   const state = cloneDetachState(detachState);
+  triggerPreview = new Float32Array(numSamples);
 
   for (let i = 0; i < numSamples; i++) {
     const phase = uPhase + (i / Math.max(1, numSamples - 1));
     const u = warpPhaseToSourceU(phase);
     const raw = sampleSource(u);
-    preview[i] = processPlaybackSample(raw, state, sr);
+    preview[i] = processPlaybackSample(raw, state, sr, phase, i);
   }
   return preview;
 }
@@ -609,7 +610,21 @@ function drawSourceWaveform() {
 
   sctx.fillStyle = "rgba(255,255,255,0.78)";
   sctx.font = `${Math.max(10, Math.floor(h * 0.16))}px ui-sans-serif, system-ui`;
-  sctx.fillText(params.detachDistortion ? "blue = source, amber = realized 1-cycle output" : "blue = source, amber = realized 1-cycle preview", 10, Math.max(14, Math.floor(h * 0.22)));
+  if (params.detachDistortion && triggerPreview && triggerPreview.length > 0) {
+    sctx.strokeStyle = "rgba(255, 90, 90, 0.95)";
+    sctx.lineWidth = 1;
+    for (let i = 0; i < triggerPreview.length; i++) {
+      if (triggerPreview[i] > 0.5) {
+        const x = (i / Math.max(1, triggerPreview.length - 1)) * w;
+        sctx.beginPath();
+        sctx.moveTo(x, h * 0.08);
+        sctx.lineTo(x, h * 0.28);
+        sctx.stroke();
+      }
+    }
+  }
+
+  sctx.fillText(params.detachDistortion ? "blue = source, amber = realized spikes, red = triggers" : "blue = source, amber = realized 1-cycle preview", 10, Math.max(14, Math.floor(h * 0.22)));
 
   // Centerline
   sctx.strokeStyle = "rgba(255,255,255,0.12)";
@@ -735,35 +750,30 @@ function warpPhaseToSourceU(phase) {
 
 
 
-/* -------------------- Detach distortion -------------------- */
-  const DETACH_DEFAULTS = {
-    mode: "locked",       // EN: "locked" | "free"
-    y: 0,
-    v: 0,
-    lastRaw: 0,
-    freeTimeLeft: 0,
-    relockBlend: 1,
-    cooldownLeft: 0       // EN: Time remaining before a new detach is allowed.
-  };
+/* -------------------- Triggered transient spike distortion -------------------- */
+const MICROSLIP_DEFAULTS = {
+  cooldownLeft: 0,      // EN: Refractory time before another trigger is allowed.
+  spikeLeft: 0,         // EN: Remaining spike time in seconds.
+  spikeSign: 1,         // EN: Sign of the current transient spike.
+  lastRaw: 0
+};
 
-let detachState = { ...DETACH_DEFAULTS };
+let detachState = { ...MICROSLIP_DEFAULTS };
 let detachMix = 0;
 let detachMixTarget = 0;
+let triggerPreview = new Float32Array(0); // EN: Per-cycle trigger markers for source preview.
 
-  function cloneDetachState(state) {
-    return {
-      mode: state.mode,
-      y: state.y,
-      v: state.v,
-      lastRaw: state.lastRaw,
-      freeTimeLeft: state.freeTimeLeft,
-      relockBlend: state.relockBlend,
-      cooldownLeft: state.cooldownLeft
-    };
-  }
+function cloneDetachState(state) {
+  return {
+    cooldownLeft: state.cooldownLeft,
+    spikeLeft: state.spikeLeft,
+    spikeSign: state.spikeSign,
+    lastRaw: state.lastRaw
+  };
+}
 
 function resetDetachState() {
-  detachState = { ...DETACH_DEFAULTS };
+  detachState = { ...MICROSLIP_DEFAULTS };
 }
 
 function getCurrentRawFromPhase(phase = uPhase) {
@@ -771,82 +781,58 @@ function getCurrentRawFromPhase(phase = uPhase) {
   return sampleSource(u);
 }
 
-  function armDetachState(raw) {
-    detachState = {
-      mode: "locked",
-      y: raw,
-      v: 0,
-      lastRaw: raw,
-      freeTimeLeft: 0,
-      relockBlend: 1,
-      cooldownLeft: 0
-    };
-  }
+function armDetachState(raw) {
+  detachState = {
+    cooldownLeft: 0,
+    spikeLeft: 0,
+    spikeSign: 1,
+    lastRaw: raw
+  };
+}
 
-function processPlaybackSample(raw, state, sampleRate) {
+function processPlaybackSample(raw, state, sampleRate, phase, debugIndex = -1) {
   const dt = 1 / Math.max(1, sampleRate);
-  // EN: Count down the detach cooldown in seconds.
-  state.cooldownLeft = Math.max(0, (state.cooldownLeft || 0) - dt);
 
   const blendTau = Math.max(0.001, params.detachBlendMs * 0.001);
   const blendStep = Math.min(1, dt / blendTau);
   detachMix += (detachMixTarget - detachMix) * blendStep;
 
-  // EN: Fully bypassed -> keep state warm and return raw signal.
-  if (detachMixTarget <= 0.0001 && detachMix <= 0.0001) {
-    state.mode = "locked";
-    state.y = raw;
-    state.v = 0;
-    state.lastRaw = raw;
-    state.freeTimeLeft = 0;
-    state.relockBlend = 1;
-    return raw;
-  }
-
   const dvRaw = (raw - state.lastRaw) / dt;
   const stress = Math.abs(dvRaw);
 
-  const releaseThreshold = 22.0;
-  const relockThreshold = 8.0;
-  const damping = 7.0;
-  const weakReturn = 18.0;
-  const maxFreeHold = 0.010;
-  const relockBlendTime = 0.006;
-  const detachCooldown = 0.12; // EN: Minimum time before another detach can occur.
+  // EN: More sensitive trigger + short additive spike, not resonant motion.
+  const releaseThreshold = 6.0;
+  const spikeMinMs = 0.5;
+  const spikeMaxMs = 2.0;
+  const spikeAmp = 0.32;
+  const triggerCooldownMs = 6.0;
 
-  if (state.mode === "locked") {
-    state.y = raw;
-    state.v = dvRaw * dt;
-    if (detachMixTarget > 0.5 && stress > releaseThreshold && state.cooldownLeft <= 0) {
-      state.mode = "free";
-      state.freeTimeLeft = maxFreeHold * (0.7 + Math.random() * 0.6);
-      state.relockBlend = 0;
-      state.cooldownLeft = detachCooldown; // EN: Prevent repeated detach bursts for a short time.
-      state.v += 0.15 * dvRaw * dt;
-    }
-  } else {
-    const err = raw - state.y;
-    const a = weakReturn * err - damping * state.v;
-    state.v += a * dt;
-    state.y += state.v;
-    state.freeTimeLeft = Math.max(0, state.freeTimeLeft - dt);
+  state.cooldownLeft = Math.max(0, state.cooldownLeft - dt);
 
-    const velErr = Math.abs(dvRaw * dt - state.v);
-    const posErr = Math.abs(err);
-    if (state.freeTimeLeft <= 0 && stress < relockThreshold && posErr < 0.22 && velErr < 0.18) {
-      state.mode = "locked";
-      state.relockBlend = Math.min(1, state.relockBlend + dt / relockBlendTime);
-      state.y = state.y * (1 - state.relockBlend) + raw * state.relockBlend;
-      if (state.relockBlend >= 0.999) {
-        state.y = raw;
-        state.v = 0;
-      }
-    }
+  let triggered = false;
+  if (detachMixTarget > 0.5 && state.cooldownLeft <= 0 && stress > releaseThreshold) {
+    const strength = Math.min(1, Math.max(0, (stress - releaseThreshold) / Math.max(1e-6, releaseThreshold * 2.0)));
+    const spikeMs = spikeMinMs + (spikeMaxMs - spikeMinMs) * strength;
+    state.spikeLeft = 0.001 * spikeMs;
+    state.spikeSign = Math.sign(dvRaw || 1);
+    state.cooldownLeft = 0.001 * triggerCooldownMs;
+    triggered = true;
+  }
+
+  let spike = 0;
+  if (state.spikeLeft > 0) {
+    const env = Math.max(0, Math.min(1, state.spikeLeft / (0.001 * spikeMaxMs)));
+    spike = state.spikeSign * spikeAmp * env * env;
+    state.spikeLeft = Math.max(0, state.spikeLeft - dt);
+  }
+
+  if (debugIndex >= 0 && debugIndex < triggerPreview.length) {
+    triggerPreview[debugIndex] = triggered ? 1 : 0;
   }
 
   state.lastRaw = raw;
-  const distorted = state.y;
-  return raw * (1 - detachMix) + distorted * detachMix;
+  const spiked = raw + spike;
+  return raw * (1 - detachMix) + spiked * detachMix;
 }
 
 /**
@@ -865,7 +851,7 @@ function makeGrainBuffer(grainLen, sampleRate, startPhase, speedHz) {
     const phase = startPhase + i * dp;
     const u = warpPhaseToSourceU(phase);
     const raw = sampleSource(u);
-    const y = processPlaybackSample(raw, detachState, sampleRate);
+    const y = processPlaybackSample(raw, detachState, sampleRate, phase);
 
     const t = i * invN;
     const win = 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
@@ -1095,13 +1081,13 @@ function animate() {
     const sr = ctx ? ctx.sampleRate : 0;
   const d = (sr ? computeDerivedGrain(sr) : null);
   hudEl.textContent =
-`granular v2.6.4
+`granular v2.7.1
 freqHz=${params.speedHz.toFixed(2)}  volume=${params.volume.toFixed(3)}
 grainsPerLoop=${params.grainsPerLoop.toFixed(1)}  overlap=${params.overlap.toFixed(2)}
 source=${params.sourceShape}  signal=${params.signalAxis}  warp=${params.playbackWarpMode === "auto" ? "proj" : "off"}
 grain≈${d ? d.grainMs.toFixed(1) : "—"}ms  hop≈${d ? d.hopMs.toFixed(1) : "—"}ms
 sourceLen=${params.sourceLen}  sourceUpd<=${params.sourceMaxUpdateHz}/s
-audioSR=${sr}\ndetachDist=${params.detachDistortion ? "on" : "off"}`;
+audioSR=${sr}\ntransientSpikes=${params.detachDistortion ? "on" : "off"}`;
 
   drawOutputWaveform();
 
