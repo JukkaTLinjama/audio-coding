@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>loudness-meter-v2.6</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    button,
+    input[type="range"] {
+      cursor: pointer;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 16px;
+    }
+
+    .header {
+      width: 100%;
+      max-width: 1280px;
+      text-align: center;
+      margin-bottom: 2px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #eee;
+    }
+
+    .versionComment {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #999;
+      line-height: 1.3;
+    }
+
+    .panel {
+      width: 100%;
+      max-width: 1280px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .status {
+      font-size: 13px;
+      white-space: pre-wrap;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 10px;
+      line-height: 1.4;
+    }
+
+    .controls {
+      width: 100%;
+      max-width: 1280px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    .controlRow {
+      display: grid;
+      grid-template-columns: 180px 1fr 90px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .controlRow label,
+    .controlRow .value {
+      font-size: 14px;
+    }
+
+    .vizWrap {
+      width: 100%;
+      max-width: 1280px;
+      display: grid;
+      grid-template-columns: 1fr 84px 84px 84px;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    canvas {
+      width: 100%;
+      height: 420px;
+      background: #000;
+      border: 1px solid #333;
+      display: block;
+    }
+
+    .meterPanel {
+      background: #000;
+      border: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 8px;
+      box-sizing: border-box;
+    }
+
+    .meterTitle {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 10px;
+      text-align: center;
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .meterScaleWrap {
+      position: relative;
+      width: 100%;
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      min-height: 320px;
+    }
+
+    .meterScale {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 26px;
+    }
+
+    .meterTubeBg {
+      position: absolute;
+      left: 34px;
+      top: 0;
+      bottom: 0;
+      width: 28px;
+      background: #151515;
+      border: 1px solid #444;
+    }
+
+    .meterBar {
+      position: absolute;
+      left: 35px;
+      bottom: 1px;
+      width: 26px;
+      height: 0%;
+      background: linear-gradient(to top, #2d7, #dd4, #f44);
+    }
+
+    .meterBarTactile {
+      position: absolute;
+      left: 35px;
+      bottom: 1px;
+      width: 26px;
+      height: 0%;
+      background: linear-gradient(to top, #2dc7d7, #7cc8ff, #c1e7ff);
+    }
+
+    .meterBarLoudness {
+      position: absolute;
+      left: 35px;
+      bottom: 1px;
+      width: 26px;
+      height: 0%;
+      background: linear-gradient(to top, #6d7cff, #ba8cff, #f0b6ff);
+    }
+
+    .meterReadout {
+      font-size: 12px;
+      margin-top: 10px;
+      text-align: center;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 920px) {
+      .vizWrap {
+        grid-template-columns: 1fr 70px 70px 70px;
+      }
+
+      .controlRow {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="pageTitle"></h1>
+    <div class="versionComment" id="versionComment">v2.6</div>
+  </div>
+
+  <button id="startBtn">Start microphone</button>
+
+  <div class="controls">
+    <div class="controlRow">
+      <label for="offsetSlider">dB offset calibration</label>
+      <input id="offsetSlider" type="range" min="-20" max="120" step="0.5" value="0" />
+      <div class="value" id="offsetValue">0.0 dB</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="status" class="status">Not started</div>
+  </div>
+
+  <div class="vizWrap">
+    <canvas id="spectrum" width="1000" height="420"></canvas>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Tactile level</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="tactileScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBarTactile" id="tactileBar"></div>
+      </div>
+      <div class="meterReadout" id="tactileText">
+        31.5 Hz: -- dB<br />
+        63 Hz: -- dB<br />
+        Sum: -- dB
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Audio level</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="loudnessScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBarLoudness" id="loudnessBar"></div>
+      </div>
+      <div class="meterReadout" id="loudnessText">
+        125 Hz+: -- dB<br />
+        Sum: -- dB<br />
+        Ref: fixed scale
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Full band level</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="meterScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar" id="meterBar"></div>
+      </div>
+      <div class="meterReadout" id="meterText">
+        RMS: -- dBFS<br />
+        Offset: -- dB<br />
+        Cal: -- dB
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // EN: UI references
+    const startBtn = document.getElementById("startBtn");
+    const pageTitleEl = document.getElementById("pageTitle");
+    const versionCommentEl = document.getElementById("versionComment");
+    const statusEl = document.getElementById("status");
+    const spectrumCanvas = document.getElementById("spectrum");
+    const spectrumCtx = spectrumCanvas.getContext("2d");
+    const meterBarEl = document.getElementById("meterBar");
+    const meterTextEl = document.getElementById("meterText");
+    const meterScaleEl = document.getElementById("meterScale");
+    const loudnessBarEl = document.getElementById("loudnessBar");
+    const loudnessTextEl = document.getElementById("loudnessText");
+    const loudnessScaleEl = document.getElementById("loudnessScale");
+    const tactileBarEl = document.getElementById("tactileBar");
+    const tactileTextEl = document.getElementById("tactileText");
+    const tactileScaleEl = document.getElementById("tactileScale");
+    const offsetSliderEl = document.getElementById("offsetSlider");
+    const offsetValueEl = document.getElementById("offsetValue");
+
+    // EN: Copy the document title to the visible page header
+    pageTitleEl.textContent = document.title;
+
+    // EN: Set the visible version comment below the main title
+    versionCommentEl.textContent = "v2.6";
+
+    // EN: Audio state
+    let audioContext = null;
+    let analyser = null;
+    let source = null;
+    let streamRef = null;
+    let freqData = null;
+    let timeData = null;
+    let animationId = null;
+
+    // EN: Display calibration offset in dB
+    let dbOffset = Number(offsetSliderEl.value);
+
+    // EN: 1/1 octave center frequencies for a simple log-frequency display
+    const octaveCenters = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
+    // EN: Keep RMS meter behavior unchanged and freeze only the spectrum scale
+    const meterDisplayMinDb = -60;
+    const meterDisplayMaxDb = 12;
+
+    // EN: Apply the user calibration offset to any displayed dB value
+    function applyCalibration(dbValue) {
+      return dbValue + dbOffset;
+    }
+
+    offsetSliderEl.addEventListener("input", () => {
+      dbOffset = Number(offsetSliderEl.value);
+      offsetValueEl.textContent = `${dbOffset.toFixed(1)} dB`;
+    });
+
+    startBtn.addEventListener("click", async () => {
+      if (audioContext) {
+        logStatus("Already running.");
+        return;
+      }
+
+      try {
+        logStatus(
+          [
+            "Chrome mic debug",
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`,
+            `protocol: ${location.protocol}`,
+            `userAgent: ${navigator.userAgent}`,
+            `navigator.mediaDevices exists: ${!!navigator.mediaDevices}`,
+            `getUserMedia exists: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`
+          ].join("\n")
+        );
+
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+            console.log("permission microphone state:", permissionStatus.state);
+            appendStatus(`permission microphone state: ${permissionStatus.state}`);
+          } catch (permErr) {
+            console.warn("permissions.query failed:", permErr);
+            appendStatus(`permissions.query failed: ${permErr.message}`);
+          }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        streamRef = stream;
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 4096;
+        analyser.smoothingTimeConstant = 0.85;
+        analyser.minDecibels = -100;
+        analyser.maxDecibels = -20;
+
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        freqData = new Float32Array(analyser.frequencyBinCount);
+        timeData = new Float32Array(analyser.fftSize);
+
+        appendStatus(`audioContext.sampleRate: ${audioContext.sampleRate}`);
+        appendStatus(`analyser.fftSize: ${analyser.fftSize}`);
+        appendStatus(`analyser.frequencyBinCount: ${analyser.frequencyBinCount}`);
+
+        await appendAudioInputList();
+
+        const tracks = stream.getAudioTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          appendStatus(`active track.label: ${track.label || "(hidden until permission granted)"}`);
+          appendStatus(`active track.readyState: ${track.readyState}`);
+          console.log("audio track settings:", track.getSettings ? track.getSettings() : {});
+        }
+
+        draw();
+      } catch (err) {
+        console.error("getUserMedia error:", err.name, err.message, err);
+        logStatus(
+          [
+            "Microphone start failed",
+            `err.name: ${err.name}`,
+            `err.message: ${err.message}`,
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`
+          ].join("\n")
+        );
+      }
+    });
+
+    function logStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function appendStatus(text) {
+      statusEl.textContent += `\n${text}`;
+    }
+
+    async function appendAudioInputList() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === "audioinput");
+
+        appendStatus("Audio inputs:");
+        audioInputs.forEach((device, index) => {
+          const label = device.label || "(label hidden until permission granted)";
+          appendStatus(`  ${index}: ${label} | ${device.deviceId}`);
+        });
+      } catch (error) {
+        appendStatus(`enumerateDevices failed: ${error.message}`);
+      }
+    }
+
+    function buildMeterScale(scaleEl, minDb, maxDb) {
+      scaleEl.innerHTML = "";
+
+      // EN: Build a vertical dB scale for a specific display range
+      const ticks = buildTicksForRange(minDb, maxDb);
+
+      ticks.forEach(db => {
+        const yNorm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const bottomPercent = yNorm * 100;
+
+        const tick = document.createElement("div");
+        tick.style.position = "absolute";
+        tick.style.left = "0";
+        tick.style.right = "0";
+        tick.style.bottom = `${bottomPercent}%`;
+        tick.style.height = "0";
+
+        const line = document.createElement("div");
+        line.style.position = "absolute";
+        line.style.right = "0";
+        line.style.width = "8px";
+        line.style.borderTop = "1px solid #666";
+
+        const label = document.createElement("div");
+        label.textContent = `${db.toFixed(0)}`;
+        label.style.position = "absolute";
+        label.style.right = "10px";
+        label.style.transform = "translateY(-50%)";
+        label.style.fontSize = "11px";
+        label.style.color = "#999";
+
+        tick.appendChild(line);
+        tick.appendChild(label);
+        scaleEl.appendChild(tick);
+      });
+    }
+
+    function buildTicksForRange(minDb, maxDb) {
+      const ticks = [];
+      const step = 10;
+
+      const start = Math.ceil(minDb / step) * step;
+      for (let db = start; db <= maxDb; db += step) {
+        ticks.push(db);
+      }
+
+      if (!ticks.includes(minDb)) ticks.unshift(minDb);
+      if (!ticks.includes(maxDb)) ticks.push(maxDb);
+
+      return ticks;
+    }
+
+    function draw() {
+      animationId = requestAnimationFrame(draw);
+
+      analyser.getFloatTimeDomainData(timeData);
+      analyser.getFloatFrequencyData(freqData);
+
+      const rms = calculateRMS(timeData);
+      const rmsDbFs = rms > 0 ? 20 * Math.log10(rms) : -100;
+      const calibratedRmsDb = applyCalibration(rmsDbFs);
+
+      // EN: Keep the original RMS-driven meter behavior unchanged
+      const meterMinDb = meterDisplayMinDb;
+      const meterMaxDb = meterDisplayMaxDb;
+
+      // EN: Freeze only the spectrum scale to the same fixed range as the meters
+      const spectrumMinDb = meterDisplayMinDb;
+      const spectrumMaxDb = meterDisplayMaxDb;
+
+      buildMeterScale(meterScaleEl, meterMinDb, meterMaxDb);
+      buildMeterScale(loudnessScaleEl, meterMinDb, meterMaxDb);
+      buildMeterScale(tactileScaleEl, meterMinDb, meterMaxDb);
+
+      const bandValues = getOctaveBandValues(freqData, audioContext.sampleRate);
+
+      const tactile31 = bandValues.find(band => band.centerFreq === 31.5)?.dbCal ?? applyCalibration(-100);
+      const tactile63 = bandValues.find(band => band.centerFreq === 63)?.dbCal ?? applyCalibration(-100);
+      const tactileSum = sumDbValues([tactile31, tactile63]);
+
+      const loudnessBands = bandValues.filter(band => band.centerFreq >= 125);
+      const loudnessSum = sumDbValues(loudnessBands.map(band => band.dbCal));
+
+      updateFullBandMeter(rmsDbFs, calibratedRmsDb, meterMinDb, meterMaxDb);
+      updateAudioMeter(loudnessSum, meterMinDb, meterMaxDb);
+      updateTactileMeter(tactile31, tactile63, tactileSum, meterMinDb, meterMaxDb);
+      drawOctaveSpectrum(bandValues, spectrumMinDb, spectrumMaxDb, calibratedRmsDb);
+    }
+
+    function calculateRMS(buffer) {
+      let sumSquares = 0;
+
+      for (let i = 0; i < buffer.length; i++) {
+        const value = buffer[i];
+        sumSquares += value * value;
+      }
+
+      return Math.sqrt(sumSquares / buffer.length);
+    }
+
+    function updateFullBandMeter(rmsDbFs, calibratedDb, minDb, maxDb) {
+      const normalized = clamp((calibratedDb - minDb) / (maxDb - minDb), 0, 1);
+
+      meterBarEl.style.height = `${normalized * 100}%`;
+      meterTextEl.innerHTML =
+        `RMS: ${rmsDbFs.toFixed(1)} dBFS<br />` +
+        `Offset: ${dbOffset.toFixed(1)} dB<br />` +
+        `Cal: ${calibratedDb.toFixed(1)} dB`;
+    }
+
+    function updateAudioMeter(loudnessSum, minDb, maxDb) {
+      const normalized = clamp((loudnessSum - minDb) / (maxDb - minDb), 0, 1);
+
+      loudnessBarEl.style.height = `${normalized * 100}%`;
+      loudnessTextEl.innerHTML =
+        `125 Hz+: ${loudnessSum.toFixed(1)} dB<br />` +
+        `Sum: ${loudnessSum.toFixed(1)} dB<br />` +
+        `Ref: fixed scale`;
+    }
+
+    function updateTactileMeter(tactile31, tactile63, tactileSum, minDb, maxDb) {
+      const normalized = clamp((tactileSum - minDb) / (maxDb - minDb), 0, 1);
+
+      tactileBarEl.style.height = `${normalized * 100}%`;
+      tactileTextEl.innerHTML =
+        `31.5 Hz: ${tactile31.toFixed(1)} dB<br />` +
+        `63 Hz: ${tactile63.toFixed(1)} dB<br />` +
+        `Sum: ${tactileSum.toFixed(1)} dB`;
+    }
+
+    function getOctaveBandValues(freqDbArray, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const bandValues = [];
+
+      for (const centerFreq of octaveCenters) {
+        const low = centerFreq / Math.sqrt(2);
+        const high = centerFreq * Math.sqrt(2);
+
+        if (low >= nyquist) continue;
+
+        const avgDb = getAverageDbInBand(freqDbArray, low, Math.min(high, nyquist), sampleRate);
+        const dbRaw = isFinite(avgDb) ? avgDb : -100;
+        const dbCal = applyCalibration(dbRaw);
+
+        bandValues.push({
+          centerFreq,
+          low,
+          high,
+          dbRaw,
+          dbCal
+        });
+      }
+
+      return bandValues;
+    }
+
+    function drawOctaveSpectrum(bandValues, minDb, maxDb, calibratedRmsDb) {
+      const w = spectrumCanvas.width;
+      const h = spectrumCanvas.height;
+
+      spectrumCtx.clearRect(0, 0, w, h);
+      spectrumCtx.fillStyle = "#000";
+      spectrumCtx.fillRect(0, 0, w, h);
+
+      const left = 70;
+      const right = 20;
+      const top = 20;
+      const bottom = 55;
+      const plotW = w - left - right;
+      const plotH = h - top - bottom;
+
+      drawGrid(left, top, plotW, plotH, minDb, maxDb);
+
+      const barGap = 10;
+      const barWidth = (plotW - barGap * (bandValues.length - 1)) / bandValues.length;
+
+      for (let i = 0; i < bandValues.length; i++) {
+        const band = bandValues[i];
+        const x = left + i * (barWidth + barGap);
+
+        const norm = clamp((band.dbCal - minDb) / (maxDb - minDb), 0, 1);
+        const barHeight = norm * plotH;
+        const y = top + (plotH - barHeight);
+
+        const isTactileBand = band.centerFreq === 31.5 || band.centerFreq === 63;
+        const isLoudnessBand = band.centerFreq >= 125;
+
+        spectrumCtx.fillStyle = isTactileBand ? "#8ef" : (isLoudnessBand ? "#c7a2ff" : "#7cf");
+        spectrumCtx.fillRect(x, y, barWidth, barHeight);
+
+        spectrumCtx.strokeStyle = isTactileBand ? "#e8fbff" : (isLoudnessBand ? "#efd8ff" : "#bfe3ff");
+        spectrumCtx.strokeRect(x, y, barWidth, barHeight);
+
+        spectrumCtx.fillStyle = "#ddd";
+        spectrumCtx.font = "12px Arial";
+        spectrumCtx.textAlign = "center";
+        spectrumCtx.fillText(formatFreqLabel(band.centerFreq), x + barWidth / 2, top + plotH + 18);
+
+        spectrumCtx.fillStyle = isTactileBand ? "#dff" : (isLoudnessBand ? "#f1ddff" : "#9fd");
+        spectrumCtx.font = "11px Arial";
+        spectrumCtx.fillText(`${band.dbCal.toFixed(0)}`, x + barWidth / 2, Math.max(top + 12, y - 6));
+      }
+
+      // EN: Draw RMS reference line on the fixed spectrum scale
+      const rmsNorm = clamp((calibratedRmsDb - minDb) / (maxDb - minDb), 0, 1);
+      const rmsY = top + (1 - rmsNorm) * plotH;
+
+      spectrumCtx.strokeStyle = "#ffb347";
+      spectrumCtx.lineWidth = 1.5;
+      spectrumCtx.beginPath();
+      spectrumCtx.moveTo(left, rmsY);
+      spectrumCtx.lineTo(left + plotW, rmsY);
+      spectrumCtx.stroke();
+
+      spectrumCtx.fillStyle = "#ffb347";
+      spectrumCtx.font = "11px Arial";
+      spectrumCtx.textAlign = "left";
+      spectrumCtx.fillText(`RMS ref ${calibratedRmsDb.toFixed(1)} dB`, left + 6, Math.max(top + 12, rmsY - 6));
+
+      spectrumCtx.fillStyle = "#ccc";
+      spectrumCtx.font = "12px Arial";
+      spectrumCtx.textAlign = "left";
+      spectrumCtx.fillText(document.title, left, 14);
+
+      spectrumCtx.save();
+      spectrumCtx.translate(18, top + plotH / 2);
+      spectrumCtx.rotate(-Math.PI / 2);
+      spectrumCtx.textAlign = "center";
+      spectrumCtx.fillText("Level (dB)", 0, 0);
+      spectrumCtx.restore();
+    }
+
+    function drawGrid(left, top, plotW, plotH, minDb, maxDb) {
+      spectrumCtx.strokeStyle = "#222";
+      spectrumCtx.lineWidth = 1;
+
+      const dbTicks = buildTicksForRange(minDb, maxDb);
+      for (const db of dbTicks) {
+        const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const y = top + (1 - norm) * plotH;
+
+        spectrumCtx.beginPath();
+        spectrumCtx.moveTo(left, y);
+        spectrumCtx.lineTo(left + plotW, y);
+        spectrumCtx.stroke();
+
+        spectrumCtx.fillStyle = "#888";
+        spectrumCtx.font = "11px Arial";
+        spectrumCtx.textAlign = "right";
+        spectrumCtx.fillText(`${db.toFixed(0)}`, left - 8, y + 4);
+      }
+
+      spectrumCtx.strokeStyle = "#555";
+      spectrumCtx.strokeRect(left, top, plotW, plotH);
+    }
+
+    function getAverageDbInBand(freqDbArray, lowFreq, highFreq, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const binCount = freqDbArray.length;
+
+      const startIndex = Math.max(0, Math.floor((lowFreq / nyquist) * binCount));
+      const endIndex = Math.min(binCount - 1, Math.ceil((highFreq / nyquist) * binCount));
+
+      if (endIndex < startIndex) {
+        return -100;
+      }
+
+      let sum = 0;
+      let count = 0;
+
+      for (let i = startIndex; i <= endIndex; i++) {
+        const db = freqDbArray[i];
+        if (isFinite(db)) {
+          sum += db;
+          count++;
+        }
+      }
+
+      if (count === 0) {
+        return -100;
+      }
+
+      return sum / count;
+    }
+
+    function sumDbValues(dbValues) {
+      let linearSum = 0;
+
+      for (const dbValue of dbValues) {
+        linearSum += Math.pow(10, dbValue / 10);
+      }
+
+      if (linearSum <= 0) {
+        return meterDisplayMinDb;
+      }
+
+      return 10 * Math.log10(linearSum);
+    }
+
+    function formatFreqLabel(freq) {
+      if (freq >= 1000) {
+        return `${freq / 1000}k`;
+      }
+      return `${freq}`;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="fi">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mic Octave Spectrum</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .panel {
+            width: 100%;
+            max-width: 960px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .status {
+            font-size: 13px;
+            white-space: pre-wrap;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 10px;
+        }
+
+        .meterWrap {
+            width: 100%;
+            max-width: 960px;
+            border: 1px solid #333;
+            background: #000;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .meterLabel {
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .meterBarBg {
+            width: 100%;
+            height: 22px;
+            background: #1b1b1b;
+            border: 1px solid #444;
+            position: relative;
+        }
+
+        .meterBar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(to right, #2d7, #dd4, #f44);
+        }
+
+        .meterText {
+            font-size: 12px;
+            margin-top: 6px;
+            opacity: 0.9;
+        }
+
+        canvas {
+            width: 100%;
+            max-width: 960px;
+            height: 420px;
+            background: #000;
+            border: 1px solid #333;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <button id="startBtn">Start microphone</button>
+
+    <div class="panel">
+        <div id="status" class="status">Not started</div>
+    </div>
+
+    <div class="meterWrap">
+        <div class="meterLabel">Input level</div>
+        <div class="meterBarBg">
+            <div id="meterBar" class="meterBar"></div>
+        </div>
+        <div id="meterText" class="meterText">RMS: -- dBFS</div>
+    </div>
+
+    <canvas id="spectrum" width="960" height="420"></canvas>
+
+    <script>
+        // EN: UI references
+        const startBtn = document.getElementById("startBtn");
+        const statusEl = document.getElementById("status");
+        const meterBarEl = document.getElementById("meterBar");
+        const meterTextEl = document.getElementById("meterText");
+        const canvas = document.getElementById("spectrum");
+        const ctx = canvas.getContext("2d");
+
+        // EN: Audio state
+        let audioContext = null;
+        let analyser = null;
+        let source = null;
+        let streamRef = null;
+        let freqData = null;
+        let timeData = null;
+        let animationId = null;
+
+        // EN: 1/1 octave center frequencies for a simple log-frequency display
+        const octaveCenters = [
+            31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000
+        ];
+
+        startBtn.addEventListener("click", async () => {
+            if (audioContext) {
+                logStatus("Already running.");
+                return;
+            }
+
+            try {
+                // EN: Log browser environment before requesting microphone access
+                logStatus(
+                    [
+                        `Chrome mic debug`,
+                        `isSecureContext: ${window.isSecureContext}`,
+                        `origin: ${location.origin}`,
+                        `protocol: ${location.protocol}`,
+                        `userAgent: ${navigator.userAgent}`,
+                        `navigator.mediaDevices exists: ${!!navigator.mediaDevices}`,
+                        `getUserMedia exists: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`
+                    ].join("\n")
+                );
+
+                // EN: Optional permissions API probe; may not fully support microphone on every browser
+                if (navigator.permissions && navigator.permissions.query) {
+                    try {
+                        const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+                        console.log("permission microphone state:", permissionStatus.state);
+                        appendStatus(`permission microphone state: ${permissionStatus.state}`);
+                    } catch (permErr) {
+                        console.warn("permissions.query failed:", permErr);
+                        appendStatus(`permissions.query failed: ${permErr.message}`);
+                    }
+                }
+
+                // EN: Request microphone access from the browser
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
+
+                streamRef = stream;
+
+                // EN: Create Web Audio context only after user gesture
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // EN: Create analyser for both time-domain level and spectrum
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 4096;
+                analyser.smoothingTimeConstant = 0.85;
+                analyser.minDecibels = -100;
+                analyser.maxDecibels = -20;
+
+                source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                freqData = new Float32Array(analyser.frequencyBinCount);
+                timeData = new Float32Array(analyser.fftSize);
+
+                // EN: Log actual audio context details
+                appendStatus(`audioContext.sampleRate: ${audioContext.sampleRate}`);
+                appendStatus(`analyser.fftSize: ${analyser.fftSize}`);
+                appendStatus(`analyser.frequencyBinCount: ${analyser.frequencyBinCount}`);
+
+                const tracks = stream.getAudioTracks();
+                if (tracks.length > 0) {
+                    const track = tracks[0];
+                    appendStatus(`track.label: ${track.label || "(hidden until permission granted)"}`);
+                    appendStatus(`track.readyState: ${track.readyState}`);
+                    console.log("audio track settings:", track.getSettings ? track.getSettings() : {});
+                }
+
+                draw();
+            } catch (err) {
+                console.error("getUserMedia error:", err.name, err.message, err);
+                logStatus(
+                    [
+                        `Microphone start failed`,
+                        `err.name: ${err.name}`,
+                        `err.message: ${err.message}`,
+                        `isSecureContext: ${window.isSecureContext}`,
+                        `origin: ${location.origin}`
+                    ].join("\n")
+                );
+            }
+        });
+
+        function logStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function appendStatus(text) {
+            statusEl.textContent += `\n${text}`;
+        }
+
+        function draw() {
+            animationId = requestAnimationFrame(draw);
+
+            // EN: Read time-domain and frequency-domain data every frame
+            analyser.getFloatTimeDomainData(timeData);
+            analyser.getFloatFrequencyData(freqData);
+
+            const rms = calculateRMS(timeData);
+            const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+            updateMeter(rmsDb);
+            drawOctaveSpectrum(freqData, audioContext.sampleRate);
+        }
+
+        function calculateRMS(buffer) {
+            let sumSquares = 0;
+
+            for (let i = 0; i < buffer.length; i++) {
+                const v = buffer[i];
+                sumSquares += v * v;
+            }
+
+            return Math.sqrt(sumSquares / buffer.length);
+        }
+
+        function updateMeter(rmsDb) {
+            // EN: Map dBFS range [-60, 0] to [0, 100] for the level bar
+            const minDb = -60;
+            const maxDb = 0;
+            const normalized = clamp((rmsDb - minDb) / (maxDb - minDb), 0, 1);
+
+            meterBarEl.style.width = `${normalized * 100}%`;
+            meterTextEl.textContent = `RMS: ${rmsDb.toFixed(1)} dBFS`;
+        }
+
+        function drawOctaveSpectrum(freqDbArray, sampleRate) {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, w, h);
+
+            // EN: Drawing area margins
+            const left = 70;
+            const right = 20;
+            const top = 20;
+            const bottom = 55;
+            const plotW = w - left - right;
+            const plotH = h - top - bottom;
+
+            // EN: dB display range for octave bars
+            const minDb = -100;
+            const maxDb = -20;
+
+            drawGrid(left, top, plotW, plotH, minDb, maxDb);
+
+            const nyquist = sampleRate / 2;
+            const bandValues = [];
+
+            for (const centerFreq of octaveCenters) {
+                const low = centerFreq / Math.sqrt(2);
+                const high = centerFreq * Math.sqrt(2);
+
+                if (low >= nyquist) continue;
+
+                const avgDb = getAverageDbInBand(freqDbArray, low, Math.min(high, nyquist), sampleRate);
+                bandValues.push({
+                    centerFreq,
+                    low,
+                    high,
+                    db: avgDb
+                });
+            }
+
+            const barGap = 10;
+            const barWidth = (plotW - barGap * (bandValues.length - 1)) / bandValues.length;
+
+            for (let i = 0; i < bandValues.length; i++) {
+                const band = bandValues[i];
+                const x = left + i * (barWidth + barGap);
+
+                const db = isFinite(band.db) ? band.db : minDb;
+                const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+                const barHeight = norm * plotH;
+                const y = top + (plotH - barHeight);
+
+                // EN: Bar fill
+                ctx.fillStyle = "#7cf";
+                ctx.fillRect(x, y, barWidth, barHeight);
+
+                // EN: Bar outline
+                ctx.strokeStyle = "#bfe3ff";
+                ctx.strokeRect(x, y, barWidth, barHeight);
+
+                // EN: Frequency label
+                ctx.fillStyle = "#ddd";
+                ctx.font = "12px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(formatFreqLabel(band.centerFreq), x + barWidth / 2, top + plotH + 18);
+
+                // EN: dB label above bar
+                ctx.fillStyle = "#9fd";
+                ctx.font = "11px Arial";
+                ctx.fillText(`${db.toFixed(0)}`, x + barWidth / 2, Math.max(top + 12, y - 6));
+            }
+
+            // EN: Axis titles
+            ctx.fillStyle = "#ccc";
+            ctx.font = "12px Arial";
+            ctx.textAlign = "left";
+            ctx.fillText("Octave bands (log frequency)", left, 14);
+
+            ctx.save();
+            ctx.translate(18, top + plotH / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = "center";
+            ctx.fillText("Level (dB)", 0, 0);
+            ctx.restore();
+        }
+
+        function drawGrid(left, top, plotW, plotH, minDb, maxDb) {
+            ctx.strokeStyle = "#222";
+            ctx.lineWidth = 1;
+
+            // EN: Horizontal dB lines
+            const dbTicks = [-100, -80, -60, -40, -20];
+            for (const db of dbTicks) {
+                const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+                const y = top + (1 - norm) * plotH;
+
+                ctx.beginPath();
+                ctx.moveTo(left, y);
+                ctx.lineTo(left + plotW, y);
+                ctx.stroke();
+
+                ctx.fillStyle = "#888";
+                ctx.font = "11px Arial";
+                ctx.textAlign = "right";
+                ctx.fillText(`${db}`, left - 8, y + 4);
+            }
+
+            // EN: Plot border
+            ctx.strokeStyle = "#555";
+            ctx.strokeRect(left, top, plotW, plotH);
+        }
+
+        function getAverageDbInBand(freqDbArray, lowFreq, highFreq, sampleRate) {
+            const nyquist = sampleRate / 2;
+            const binCount = freqDbArray.length;
+
+            // EN: FFT bins map linearly from 0 Hz to Nyquist
+            const startIndex = Math.max(0, Math.floor((lowFreq / nyquist) * binCount));
+            const endIndex = Math.min(binCount - 1, Math.ceil((highFreq / nyquist) * binCount));
+
+            if (endIndex < startIndex) {
+                return -100;
+            }
+
+            let sum = 0;
+            let count = 0;
+
+            for (let i = startIndex; i <= endIndex; i++) {
+                const db = freqDbArray[i];
+                if (isFinite(db)) {
+                    sum += db;
+                    count++;
+                }
+            }
+
+            if (count === 0) {
+                return -100;
+            }
+
+            return sum / count;
+        }
+
+        function formatFreqLabel(freq) {
+            if (freq >= 1000) {
+                return `${freq / 1000}k`;
+            }
+            return `${freq}`;
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+    </script>
+</body>
+
+</html>
