@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>loudness-meter-v3.1-tufs</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    button, input[type="range"] { cursor: pointer; }
+    button { padding: 10px 16px; font-size: 16px; }
+
+    .header { width: 100%; max-width: 1480px; text-align: center; margin-bottom: 2px; }
+    .header h1 { margin: 0; font-size: 18px; font-weight: 600; color: #eee; }
+    .versionComment { margin-top: 4px; font-size: 12px; color: #999; line-height: 1.3; }
+
+    .panel { width: 100%; max-width: 1480px; display: grid; gap: 8px; }
+    .status {
+      font-size: 13px; white-space: pre-wrap; background: #1a1a1a;
+      border: 1px solid #333; padding: 10px; line-height: 1.4;
+    }
+
+    .controls {
+      width: 100%; max-width: 1480px; display: grid; gap: 8px;
+      background: #1a1a1a; border: 1px solid #333; padding: 10px; box-sizing: border-box;
+    }
+    .controlRow {
+      display: grid; grid-template-columns: 220px 1fr 90px;
+      align-items: center; gap: 10px;
+    }
+    .controlRow label, .controlRow .value { font-size: 14px; }
+
+    .vizWrap {
+      width: 100%; max-width: 1480px; display: grid;
+      grid-template-columns: 1fr 84px 84px 84px 84px 84px;
+      gap: 12px; align-items: stretch;
+    }
+    canvas {
+      width: 100%; height: 420px; background: #000;
+      border: 1px solid #333; display: block;
+    }
+
+    .meterPanel {
+      background: #000; border: 1px solid #333; display: flex;
+      flex-direction: column; align-items: center; padding: 10px 8px; box-sizing: border-box;
+    }
+    .meterTitle {
+      font-size: 12px; opacity: 0.9; margin-bottom: 10px; text-align: center;
+      min-height: 36px; display: flex; align-items: center; justify-content: center; line-height: 1.2;
+    }
+    .meterScaleWrap {
+      position: relative; width: 100%; flex: 1; display: flex;
+      justify-content: center; min-height: 320px;
+    }
+    .meterScale { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; }
+    .meterTubeBg {
+      position: absolute; left: 34px; top: 0; bottom: 0; width: 28px;
+      background: #151515; border: 1px solid #444;
+    }
+    .meterBar {
+      position: absolute; left: 35px; bottom: 1px; width: 26px; height: 0%;
+    }
+    .meterBarSupport { background: linear-gradient(to top, #2dc7d7, #7cc8ff, #c1e7ff); }
+    .meterBarIrritation { background: linear-gradient(to top, #ff8b5f, #ffb347, #ffe08a); }
+    .meterBarNet { background: linear-gradient(to top, #6d7cff, #ba8cff, #f0b6ff); }
+    .meterBarAudio { background: linear-gradient(to top, #7a6cff, #b99cff, #f4d2ff); }
+    .meterBarFull { background: linear-gradient(to top, #2d7, #dd4, #f44); }
+
+    .meterReadout { font-size: 12px; margin-top: 10px; text-align: center; line-height: 1.35; }
+
+    @media (max-width: 1180px) {
+      .vizWrap { grid-template-columns: 1fr 70px 70px 70px 70px 70px; }
+      .controlRow { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="pageTitle"></h1>
+    <div class="versionComment" id="versionComment">v3.1</div>
+  </div>
+
+  <button id="startBtn">Start microphone</button>
+
+  <div class="controls">
+    <div class="controlRow">
+      <label for="offsetSlider">dB offset calibration</label>
+      <input id="offsetSlider" type="range" min="-20" max="120" step="0.5" value="0" />
+      <div class="value" id="offsetValue">0.0 dB</div>
+    </div>
+
+    <div class="controlRow">
+      <label for="irritationPenaltySlider">TUFS irritation penalty</label>
+      <input id="irritationPenaltySlider" type="range" min="0" max="3" step="0.05" value="1.00" />
+      <div class="value" id="irritationPenaltyValue">1.00x</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="status" class="status">Not started</div>
+  </div>
+
+  <div class="vizWrap">
+    <canvas id="spectrum" width="1100" height="420"></canvas>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Tactile<br />support</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="supportScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar meterBarSupport" id="supportBar"></div>
+      </div>
+      <div class="meterReadout" id="supportText">
+        20–63 Hz: -- dB<br />
+        3 s: -- dB<br />
+        Ref: support
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Tactile<br />irritation</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="irritationScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar meterBarIrritation" id="irritationBar"></div>
+      </div>
+      <div class="meterReadout" id="irritationText">
+        80–125 Hz: -- dB<br />
+        3 s: -- dB<br />
+        Ref: irritation
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">TUFS<br />net</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="netScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar meterBarNet" id="netBar"></div>
+      </div>
+      <div class="meterReadout" id="netText">
+        Inst: -- dB<br />
+        3 s: -- dB<br />
+        k: -- x
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Audio<br />level</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="audioScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar meterBarAudio" id="audioBar"></div>
+      </div>
+      <div class="meterReadout" id="audioText">
+        125 Hz+: -- dB<br />
+        3 s: -- dB<br />
+        Ref: fixed
+      </div>
+    </div>
+
+    <div class="meterPanel">
+      <div class="meterTitle">Full band<br />level</div>
+      <div class="meterScaleWrap">
+        <div class="meterScale" id="fullScale"></div>
+        <div class="meterTubeBg"></div>
+        <div class="meterBar meterBarFull" id="fullBar"></div>
+      </div>
+      <div class="meterReadout" id="fullText">
+        RMS: -- dBFS<br />
+        Offset: -- dB<br />
+        Cal: -- dB
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // EN: UI references
+    const startBtn = document.getElementById("startBtn");
+    const pageTitleEl = document.getElementById("pageTitle");
+    const versionCommentEl = document.getElementById("versionComment");
+    const statusEl = document.getElementById("status");
+    const spectrumCanvas = document.getElementById("spectrum");
+    const spectrumCtx = spectrumCanvas.getContext("2d");
+
+    const supportScaleEl = document.getElementById("supportScale");
+    const supportBarEl = document.getElementById("supportBar");
+    const supportTextEl = document.getElementById("supportText");
+
+    const irritationScaleEl = document.getElementById("irritationScale");
+    const irritationBarEl = document.getElementById("irritationBar");
+    const irritationTextEl = document.getElementById("irritationText");
+
+    const netScaleEl = document.getElementById("netScale");
+    const netBarEl = document.getElementById("netBar");
+    const netTextEl = document.getElementById("netText");
+
+    const audioScaleEl = document.getElementById("audioScale");
+    const audioBarEl = document.getElementById("audioBar");
+    const audioTextEl = document.getElementById("audioText");
+
+    const fullScaleEl = document.getElementById("fullScale");
+    const fullBarEl = document.getElementById("fullBar");
+    const fullTextEl = document.getElementById("fullText");
+
+    const offsetSliderEl = document.getElementById("offsetSlider");
+    const offsetValueEl = document.getElementById("offsetValue");
+    const irritationPenaltySliderEl = document.getElementById("irritationPenaltySlider");
+    const irritationPenaltyValueEl = document.getElementById("irritationPenaltyValue");
+
+    pageTitleEl.textContent = document.title;
+    versionCommentEl.textContent = "v3.1 – v2.6 style scales restored for TUFS prototype";
+
+    // EN: Audio state
+    let audioContext = null;
+    let analyser = null;
+    let source = null;
+    let freqData = null;
+    let timeData = null;
+    let animationId = null;
+
+    // EN: User-adjustable display and TUFS parameters
+    let dbOffset = Number(offsetSliderEl.value);
+    let irritationPenalty = Number(irritationPenaltySliderEl.value);
+
+    // EN: Octave centers used by the debug spectrum and band logic
+    const octaveCenters = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
+    // EN: Fixed display range kept exactly like the earlier working meter versions
+    const displayMinDb = -60;
+    const displayMaxDb = 12;
+
+    // EN: Short-term time constant to mimic a simple 3 s loudness view
+    const shortTermTimeConstantSec = 3.0;
+    let previousFrameTimeSec = null;
+
+    // EN: Short-term smoothed meter values in linear-energy domain
+    let supportShortLinear = null;
+    let irritationShortLinear = null;
+    let netShortLinear = null;
+    let audioShortLinear = null;
+
+    offsetSliderEl.addEventListener("input", () => {
+      dbOffset = Number(offsetSliderEl.value);
+      offsetValueEl.textContent = `${dbOffset.toFixed(1)} dB`;
+    });
+
+    irritationPenaltySliderEl.addEventListener("input", () => {
+      irritationPenalty = Number(irritationPenaltySliderEl.value);
+      irritationPenaltyValueEl.textContent = `${irritationPenalty.toFixed(2)}x`;
+    });
+
+    startBtn.addEventListener("click", async () => {
+      if (audioContext) {
+        logStatus("Already running.");
+        return;
+      }
+
+      try {
+        logStatus(
+          [
+            "Chrome mic debug",
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`,
+            `protocol: ${location.protocol}`,
+            `userAgent: ${navigator.userAgent}`,
+            `navigator.mediaDevices exists: ${!!navigator.mediaDevices}`,
+            `getUserMedia exists: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`
+          ].join("\n")
+        );
+
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+            appendStatus(`permission microphone state: ${permissionStatus.state}`);
+          } catch (permErr) {
+            appendStatus(`permissions.query failed: ${permErr.message}`);
+          }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 4096;
+        analyser.smoothingTimeConstant = 0.85;
+        analyser.minDecibels = -100;
+        analyser.maxDecibels = -20;
+
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        freqData = new Float32Array(analyser.frequencyBinCount);
+        timeData = new Float32Array(analyser.fftSize);
+
+        appendStatus(`audioContext.sampleRate: ${audioContext.sampleRate}`);
+        appendStatus(`analyser.fftSize: ${analyser.fftSize}`);
+        appendStatus(`analyser.frequencyBinCount: ${analyser.frequencyBinCount}`);
+
+        await appendAudioInputList(stream);
+        buildAllScales();
+        draw();
+      } catch (err) {
+        console.error("getUserMedia error:", err.name, err.message, err);
+        logStatus(
+          [
+            "Microphone start failed",
+            `err.name: ${err.name}`,
+            `err.message: ${err.message}`,
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`
+          ].join("\n")
+        );
+      }
+    });
+
+    function applyCalibration(dbValue) {
+      return dbValue + dbOffset;
+    }
+
+    function dbToLinearEnergy(dbValue) {
+      return Math.pow(10, dbValue / 10);
+    }
+
+    function linearEnergyToDb(linearValue) {
+      if (!isFinite(linearValue) || linearValue <= 0) {
+        return displayMinDb;
+      }
+      return 10 * Math.log10(linearValue);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function logStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function appendStatus(text) {
+      statusEl.textContent += `\n${text}`;
+    }
+
+    async function appendAudioInputList(stream) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === "audioinput");
+
+        appendStatus("Audio inputs:");
+        audioInputs.forEach((device, index) => {
+          const label = device.label || "(label hidden until permission granted)";
+          appendStatus(`  ${index}: ${label} | ${device.deviceId}`);
+        });
+
+        const tracks = stream.getAudioTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          appendStatus(`active track.label: ${track.label || "(hidden until permission granted)"}`);
+          appendStatus(`active track.readyState: ${track.readyState}`);
+        }
+      } catch (error) {
+        appendStatus(`enumerateDevices failed: ${error.message}`);
+      }
+    }
+
+    function buildAllScales() {
+      // EN: Match v2.6: keep visible scales fixed to the raw reference range
+      buildMeterScale(supportScaleEl, displayMinDb, displayMaxDb);
+      buildMeterScale(irritationScaleEl, displayMinDb, displayMaxDb);
+      buildMeterScale(netScaleEl, displayMinDb, displayMaxDb);
+      buildMeterScale(audioScaleEl, displayMinDb, displayMaxDb);
+      buildMeterScale(fullScaleEl, displayMinDb, displayMaxDb);
+    }
+
+    function buildMeterScale(scaleEl, minDb, maxDb) {
+      scaleEl.innerHTML = "";
+
+      const ticks = buildTicksForRange(minDb, maxDb);
+      ticks.forEach(db => {
+        const yNorm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const bottomPercent = yNorm * 100;
+
+        const tick = document.createElement("div");
+        tick.style.position = "absolute";
+        tick.style.left = "0";
+        tick.style.right = "0";
+        tick.style.bottom = `${bottomPercent}%`;
+        tick.style.height = "0";
+
+        const line = document.createElement("div");
+        line.style.position = "absolute";
+        line.style.right = "0";
+        line.style.width = "8px";
+        line.style.borderTop = "1px solid #666";
+
+        const label = document.createElement("div");
+        label.textContent = `${db.toFixed(0)}`;
+        label.style.position = "absolute";
+        label.style.right = "10px";
+        label.style.transform = "translateY(-50%)";
+        label.style.fontSize = "11px";
+        label.style.color = "#999";
+
+        tick.appendChild(line);
+        tick.appendChild(label);
+        scaleEl.appendChild(tick);
+      });
+    }
+
+    function buildTicksForRange(minDb, maxDb) {
+      const ticks = [];
+      const step = 10;
+      const start = Math.ceil(minDb / step) * step;
+
+      for (let db = start; db <= maxDb; db += step) {
+        ticks.push(db);
+      }
+
+      if (!ticks.includes(minDb)) ticks.unshift(minDb);
+      if (!ticks.includes(maxDb)) ticks.push(maxDb);
+      return ticks;
+    }
+
+    function calculateRMS(buffer) {
+      let sumSquares = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const value = buffer[i];
+        sumSquares += value * value;
+      }
+      return Math.sqrt(sumSquares / buffer.length);
+    }
+
+    function getAverageDbInBand(freqDbArray, lowFreq, highFreq, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const binCount = freqDbArray.length;
+
+      const startIndex = Math.max(0, Math.floor((lowFreq / nyquist) * binCount));
+      const endIndex = Math.min(binCount - 1, Math.ceil((highFreq / nyquist) * binCount));
+
+      if (endIndex < startIndex) {
+        return -100;
+      }
+
+      let sum = 0;
+      let count = 0;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const db = freqDbArray[i];
+        if (isFinite(db)) {
+          sum += db;
+          count++;
+        }
+      }
+
+      if (count === 0) return -100;
+      return sum / count;
+    }
+
+    function getOctaveBandValues(freqDbArray, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const bandValues = [];
+
+      for (const centerFreq of octaveCenters) {
+        const low = centerFreq / Math.sqrt(2);
+        const high = centerFreq * Math.sqrt(2);
+
+        if (low >= nyquist) continue;
+
+        const avgDb = getAverageDbInBand(freqDbArray, low, Math.min(high, nyquist), sampleRate);
+        const dbRaw = isFinite(avgDb) ? avgDb : -100;
+        const dbCal = applyCalibration(dbRaw);
+
+        bandValues.push({
+          centerFreq,
+          low,
+          high,
+          dbRaw,
+          dbCal,
+          linear: dbToLinearEnergy(dbCal)
+        });
+      }
+
+      return bandValues;
+    }
+
+    function smoothLinearValue(previousValue, instantValue, dtSec, timeConstantSec) {
+      if (previousValue === null || !isFinite(previousValue)) {
+        return instantValue;
+      }
+
+      const alpha = 1 - Math.exp(-dtSec / Math.max(0.001, timeConstantSec));
+      return previousValue + alpha * (instantValue - previousValue);
+    }
+
+    function updateMeter(barEl, textEl, instantDb, shortDb, line1, line2, line3, minDb, maxDb) {
+      const normalized = clamp((shortDb - minDb) / (maxDb - minDb), 0, 1);
+      barEl.style.height = `${normalized * 100}%`;
+      textEl.innerHTML =
+        `${line1.replace("{}", instantDb.toFixed(1))}<br />` +
+        `${line2.replace("{}", shortDb.toFixed(1))}<br />` +
+        `${line3}`;
+    }
+
+    function draw() {
+      animationId = requestAnimationFrame(draw);
+
+      const nowSec = performance.now() * 0.001;
+      let dtSec = 1 / 60;
+      if (previousFrameTimeSec !== null) {
+        dtSec = clamp(nowSec - previousFrameTimeSec, 0.001, 0.25);
+      }
+      previousFrameTimeSec = nowSec;
+
+      analyser.getFloatTimeDomainData(timeData);
+      analyser.getFloatFrequencyData(freqData);
+
+      const rms = calculateRMS(timeData);
+      const rmsDbFs = rms > 0 ? 20 * Math.log10(rms) : -100;
+      const fullBandDbCal = applyCalibration(rmsDbFs);
+
+      const bandValues = getOctaveBandValues(freqData, audioContext.sampleRate);
+
+      // EN: Support path uses the available low octaves from the existing analyzer view
+      const supportBands = bandValues.filter(band => band.centerFreq <= 63);
+      const supportLinear = supportBands.reduce((sum, band) => sum + band.linear, 0);
+
+      // EN: Irritation path uses the 80–125 Hz area approximated by the 125 Hz octave band
+      const irritationBand = bandValues.find(band => band.centerFreq === 125);
+      const irritationLinear = irritationBand ? irritationBand.linear : dbToLinearEnergy(applyCalibration(-100));
+
+      // EN: Audio path keeps the earlier 125 Hz+ energy view
+      const audioBands = bandValues.filter(band => band.centerFreq >= 125);
+      const audioLinear = audioBands.reduce((sum, band) => sum + band.linear, 0);
+
+      // EN: TUFS net uses support minus irritation in linear-energy style
+      const netLinear = Math.max(1e-12, supportLinear / Math.max(1e-12, Math.pow(irritationLinear, irritationPenalty * 0.5)));
+
+      supportShortLinear = smoothLinearValue(supportShortLinear, supportLinear, dtSec, shortTermTimeConstantSec);
+      irritationShortLinear = smoothLinearValue(irritationShortLinear, irritationLinear, dtSec, shortTermTimeConstantSec);
+      audioShortLinear = smoothLinearValue(audioShortLinear, audioLinear, dtSec, shortTermTimeConstantSec);
+      netShortLinear = smoothLinearValue(netShortLinear, netLinear, dtSec, shortTermTimeConstantSec);
+
+      const supportDb = linearEnergyToDb(supportLinear);
+      const supportShortDb = linearEnergyToDb(supportShortLinear);
+
+      const irritationDb = linearEnergyToDb(irritationLinear);
+      const irritationShortDb = linearEnergyToDb(irritationShortLinear);
+
+      const audioDb = linearEnergyToDb(audioLinear);
+      const audioShortDb = linearEnergyToDb(audioShortLinear);
+
+      const netDb = linearEnergyToDb(netLinear);
+      const netShortDb = linearEnergyToDb(netShortLinear);
+
+      // EN: Match v2.6 behavior: use the raw fixed display range for mapping
+      const meterMinDb = displayMinDb;
+      const meterMaxDb = displayMaxDb;
+      const spectrumMinDb = displayMinDb;
+      const spectrumMaxDb = displayMaxDb;
+
+      updateMeter(
+        supportBarEl, supportTextEl, supportDb, supportShortDb,
+        "20–63 Hz: {} dB", "3 s: {} dB", "Ref: support",
+        meterMinDb, meterMaxDb
+      );
+
+      updateMeter(
+        irritationBarEl, irritationTextEl, irritationDb, irritationShortDb,
+        "80–125 Hz: {} dB", "3 s: {} dB", "Ref: irritation",
+        meterMinDb, meterMaxDb
+      );
+
+      updateMeter(
+        netBarEl, netTextEl, netDb, netShortDb,
+        "Inst: {} dB", "3 s: {} dB", `k: ${irritationPenalty.toFixed(2)}x`,
+        meterMinDb, meterMaxDb
+      );
+
+      updateMeter(
+        audioBarEl, audioTextEl, audioDb, audioShortDb,
+        "125 Hz+: {} dB", "3 s: {} dB", "Ref: fixed",
+        meterMinDb, meterMaxDb
+      );
+
+      updateMeter(
+        fullBarEl, fullTextEl, fullBandDbCal, fullBandDbCal,
+        `RMS: ${rmsDbFs.toFixed(1)} dBFS`, "Cal: {} dB", `Offset: ${dbOffset.toFixed(1)} dB`,
+        meterMinDb, meterMaxDb
+      );
+
+      drawOctaveSpectrum(bandValues, spectrumMinDb, spectrumMaxDb, supportShortDb, irritationShortDb, netShortDb, fullBandDbCal);
+    }
+
+    function drawOctaveSpectrum(bandValues, minDb, maxDb, supportRefDb, irritationRefDb, netRefDb, fullBandRefDb) {
+      const w = spectrumCanvas.width;
+      const h = spectrumCanvas.height;
+
+      spectrumCtx.clearRect(0, 0, w, h);
+      spectrumCtx.fillStyle = "#000";
+      spectrumCtx.fillRect(0, 0, w, h);
+
+      const left = 70;
+      const right = 20;
+      const top = 20;
+      const bottom = 55;
+      const plotW = w - left - right;
+      const plotH = h - top - bottom;
+
+      drawGrid(left, top, plotW, plotH, minDb, maxDb);
+
+      const barGap = 10;
+      const barWidth = (plotW - barGap * (bandValues.length - 1)) / bandValues.length;
+
+      for (let i = 0; i < bandValues.length; i++) {
+        const band = bandValues[i];
+        const x = left + i * (barWidth + barGap);
+
+        const norm = clamp((band.dbCal - minDb) / (maxDb - minDb), 0, 1);
+        const barHeight = norm * plotH;
+        const y = top + (plotH - barHeight);
+
+        const isSupportBand = band.centerFreq <= 63;
+        const isIrritationBand = band.centerFreq === 125;
+        const isAudioBand = band.centerFreq >= 125;
+
+        spectrumCtx.fillStyle = isSupportBand ? "#8ef" : (isIrritationBand ? "#ffb347" : (isAudioBand ? "#c7a2ff" : "#7cf"));
+        spectrumCtx.fillRect(x, y, barWidth, barHeight);
+
+        spectrumCtx.strokeStyle = isSupportBand ? "#e8fbff" : (isIrritationBand ? "#ffe2b5" : (isAudioBand ? "#efd8ff" : "#bfe3ff"));
+        spectrumCtx.strokeRect(x, y, barWidth, barHeight);
+
+        spectrumCtx.fillStyle = "#ddd";
+        spectrumCtx.font = "12px Arial";
+        spectrumCtx.textAlign = "center";
+        spectrumCtx.fillText(formatFreqLabel(band.centerFreq), x + barWidth / 2, top + plotH + 18);
+
+        spectrumCtx.fillStyle = isSupportBand ? "#dff" : (isIrritationBand ? "#fff0c7" : (isAudioBand ? "#f1ddff" : "#9fd"));
+        spectrumCtx.font = "11px Arial";
+        spectrumCtx.fillText(`${band.dbCal.toFixed(0)}`, x + barWidth / 2, Math.max(top + 12, y - 6));
+      }
+
+      drawReferenceLine(left, plotW, top, plotH, minDb, maxDb, supportRefDb, "#8ef", "support 3 s");
+      drawReferenceLine(left, plotW, top, plotH, minDb, maxDb, irritationRefDb, "#ffb347", "irritation 3 s");
+      drawReferenceLine(left, plotW, top, plotH, minDb, maxDb, netRefDb, "#d5a6ff", "TUFS net 3 s");
+      drawReferenceLine(left, plotW, top, plotH, minDb, maxDb, fullBandRefDb, "#ff4d4d", "full band");
+
+      spectrumCtx.fillStyle = "#ccc";
+      spectrumCtx.font = "12px Arial";
+      spectrumCtx.textAlign = "left";
+      spectrumCtx.fillText(document.title, left, 14);
+
+      spectrumCtx.save();
+      spectrumCtx.translate(18, top + plotH / 2);
+      spectrumCtx.rotate(-Math.PI / 2);
+      spectrumCtx.textAlign = "center";
+      spectrumCtx.fillText("Level (dB)", 0, 0);
+      spectrumCtx.restore();
+    }
+
+    function drawReferenceLine(left, plotW, top, plotH, minDb, maxDb, refDb, color, label) {
+      const norm = clamp((refDb - minDb) / (maxDb - minDb), 0, 1);
+      const y = top + (1 - norm) * plotH;
+
+      spectrumCtx.strokeStyle = color;
+      spectrumCtx.lineWidth = 1.25;
+      spectrumCtx.beginPath();
+      spectrumCtx.moveTo(left, y);
+      spectrumCtx.lineTo(left + plotW, y);
+      spectrumCtx.stroke();
+
+      spectrumCtx.fillStyle = color;
+      spectrumCtx.font = "11px Arial";
+      spectrumCtx.textAlign = "left";
+      spectrumCtx.fillText(`${label} ${refDb.toFixed(1)} dB`, left + 6, Math.max(top + 12, y - 4));
+    }
+
+    function drawGrid(left, top, plotW, plotH, minDb, maxDb) {
+      spectrumCtx.strokeStyle = "#222";
+      spectrumCtx.lineWidth = 1;
+
+      const dbTicks = buildTicksForRange(minDb, maxDb);
+      for (const db of dbTicks) {
+        const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const y = top + (1 - norm) * plotH;
+
+        spectrumCtx.beginPath();
+        spectrumCtx.moveTo(left, y);
+        spectrumCtx.lineTo(left + plotW, y);
+        spectrumCtx.stroke();
+
+        spectrumCtx.fillStyle = "#888";
+        spectrumCtx.font = "11px Arial";
+        spectrumCtx.textAlign = "right";
+        spectrumCtx.fillText(`${db.toFixed(0)}`, left - 8, y + 4);
+      }
+
+      spectrumCtx.strokeStyle = "#555";
+      spectrumCtx.strokeRect(left, top, plotW, plotH);
+    }
+
+    function formatFreqLabel(freq) {
+      if (freq >= 1000) {
+        return `${freq / 1000}k`;
+      }
+      return `${freq}`;
+    }
+  </script>
+</body>
+</html>
