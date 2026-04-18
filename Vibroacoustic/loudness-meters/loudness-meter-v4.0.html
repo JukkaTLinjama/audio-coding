@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>loudness-meter-v4.0</title>
+  <style>
+    :root {
+      --slider-track: #555;
+      --slider-fill: #cfcfcf;
+      --slider-thumb: #f2f2f2;
+    }
+
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    button,
+    input[type="range"] {
+      cursor: pointer;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 16px;
+    }
+
+    .header {
+      width: 100%;
+      max-width: 1480px;
+      text-align: center;
+      margin-bottom: 2px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #eee;
+    }
+
+    .versionComment {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.45;
+      max-width: 980px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .panel {
+      width: 100%;
+      max-width: 1480px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .status {
+      font-size: 13px;
+      white-space: pre-wrap;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 10px;
+      line-height: 1.4;
+    }
+
+    .controls {
+      width: 100%;
+      max-width: 1480px;
+      display: grid;
+      gap: 8px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+
+    .controlRow {
+      display: grid;
+      grid-template-columns: 220px 1fr 90px;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .controlRow label,
+    .controlRow .value {
+      font-size: 14px;
+    }
+
+    .sliderWrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      height: 28px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      outline: none;
+      background: linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) 0%, var(--slider-track) 0%, var(--slider-track) 100%);
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: transparent;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      border: 1px solid #888;
+      margin-top: -5px;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+    }
+
+    input[type="range"]::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--slider-track);
+    }
+
+    input[type="range"]::-moz-range-progress {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--slider-fill);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      border: 1px solid #888;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+    }
+
+    .canvasWrap {
+      width: 100%;
+      max-width: 1480px;
+      background: #000;
+      border: 1px solid #333;
+      box-sizing: border-box;
+    }
+
+    canvas {
+      width: 100%;
+      height: 440px;
+      display: block;
+      background: #000;
+    }
+
+    @media (max-width: 760px) {
+      .controlRow {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="pageTitle"></h1>
+    <div class="versionComment" id="versionComment">v4.0</div>
+  </div>
+
+  <button id="startBtn">Start microphone</button>
+
+  <div class="controls">
+    <div class="controlRow">
+      <label for="offsetSlider">dB offset calibration</label>
+      <div class="sliderWrap">
+        <input id="offsetSlider" type="range" min="-20" max="120" step="0.5" value="60" />
+      </div>
+      <div class="value" id="offsetValue">60.0 dB</div>
+    </div>
+
+    <div class="controlRow">
+      <label for="irritationPenaltySlider">TUFS irritation penalty</label>
+      <div class="sliderWrap">
+        <input id="irritationPenaltySlider" type="range" min="0" max="3" step="0.05" value="1.00" />
+      </div>
+      <div class="value" id="irritationPenaltyValue">1.00x</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="status" class="status">Not started</div>
+  </div>
+
+  <div class="canvasWrap">
+    <canvas id="viz" width="1400" height="440"></canvas>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const pageTitleEl = document.getElementById("pageTitle");
+    const versionCommentEl = document.getElementById("versionComment");
+    const statusEl = document.getElementById("status");
+    const canvas = document.getElementById("viz");
+    const ctx = canvas.getContext("2d");
+
+    const offsetSliderEl = document.getElementById("offsetSlider");
+    const offsetValueEl = document.getElementById("offsetValue");
+    const irritationPenaltySliderEl = document.getElementById("irritationPenaltySlider");
+    const irritationPenaltyValueEl = document.getElementById("irritationPenaltyValue");
+
+    pageTitleEl.textContent = document.title;
+    versionCommentEl.textContent = "v4.0 – 1/3-oct spectrum with derived tactile, audio, and full-band bars. The dB offset now defaults to 60 dB, the visible value shown for each derived bar follows the 3 s average marker, and the sliders use a cleaner filled-track style with a muted gray inactive region.";
+
+    let audioContext = null;
+    let analyser = null;
+    let source = null;
+    let freqData = null;
+    let timeData = null;
+    let animationId = null;
+
+    let dbOffset = Number(offsetSliderEl.value);
+    let irritationPenalty = Number(irritationPenaltySliderEl.value);
+
+    const displayMinDb = -60;
+    const displayMaxDb = 12;
+
+    const thirdOctaveCenters = [
+      20, 25, 31.5, 40, 50, 63, 80, 100, 125,
+      160, 200, 250, 315, 400, 500, 630, 800,
+      1000, 1250, 1600, 2000, 2500, 3150, 4000,
+      5000, 6300, 8000, 10000, 12500, 16000
+    ];
+
+    const shortTermTimeConstantSec = 3.0;
+    let previousFrameTimeSec = null;
+
+    let supportShortLinear = null;
+    let irritationShortLinear = null;
+    let audioShortLinear = null;
+    let fullShortLinear = null;
+
+    updateSliderVisual(offsetSliderEl);
+    updateSliderVisual(irritationPenaltySliderEl);
+
+    offsetSliderEl.addEventListener("input", () => {
+      dbOffset = Number(offsetSliderEl.value);
+      offsetValueEl.textContent = `${dbOffset.toFixed(1)} dB`;
+      updateSliderVisual(offsetSliderEl);
+    });
+
+    irritationPenaltySliderEl.addEventListener("input", () => {
+      irritationPenalty = Number(irritationPenaltySliderEl.value);
+      irritationPenaltyValueEl.textContent = `${irritationPenalty.toFixed(2)}x`;
+      updateSliderVisual(irritationPenaltySliderEl);
+    });
+
+    startBtn.addEventListener("click", async () => {
+      if (audioContext) {
+        logStatus("Already running.");
+        return;
+      }
+
+      try {
+        logStatus(
+          [
+            "Chrome mic debug",
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`,
+            `protocol: ${location.protocol}`,
+            `userAgent: ${navigator.userAgent}`,
+            `navigator.mediaDevices exists: ${!!navigator.mediaDevices}`,
+            `getUserMedia exists: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`
+          ].join("\n")
+        );
+
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+            appendStatus(`permission microphone state: ${permissionStatus.state}`);
+          } catch (permErr) {
+            appendStatus(`permissions.query failed: ${permErr.message}`);
+          }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 8192;
+        analyser.smoothingTimeConstant = 0.85;
+        analyser.minDecibels = -100;
+        analyser.maxDecibels = -20;
+
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        freqData = new Float32Array(analyser.frequencyBinCount);
+        timeData = new Float32Array(analyser.fftSize);
+
+        appendStatus(`audioContext.sampleRate: ${audioContext.sampleRate}`);
+        appendStatus(`analyser.fftSize: ${analyser.fftSize}`);
+        appendStatus(`analyser.frequencyBinCount: ${analyser.frequencyBinCount}`);
+
+        await appendAudioInputList(stream);
+        draw();
+      } catch (err) {
+        console.error("getUserMedia error:", err.name, err.message, err);
+        logStatus(
+          [
+            "Microphone start failed",
+            `err.name: ${err.name}`,
+            `err.message: ${err.message}`,
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`
+          ].join("\n")
+        );
+      }
+    });
+
+    function updateSliderVisual(slider) {
+      const min = Number(slider.min);
+      const max = Number(slider.max);
+      const val = Number(slider.value);
+      const pct = ((val - min) / (max - min)) * 100;
+      slider.style.background = `linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) ${pct}%, var(--slider-track) ${pct}%, var(--slider-track) 100%)`;
+    }
+
+    function applyCalibration(dbValue) {
+      return dbValue + dbOffset;
+    }
+
+    function dbToLinearEnergy(dbValue) {
+      return Math.pow(10, dbValue / 10);
+    }
+
+    function linearEnergyToDb(linearValue) {
+      if (!isFinite(linearValue) || linearValue <= 0) {
+        return displayMinDb;
+      }
+      return 10 * Math.log10(linearValue);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function logStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function appendStatus(text) {
+      statusEl.textContent += `\n${text}`;
+    }
+
+    async function appendAudioInputList(stream) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === "audioinput");
+
+        appendStatus("Audio inputs:");
+        audioInputs.forEach((device, index) => {
+          const label = device.label || "(label hidden until permission granted)";
+          appendStatus(`  ${index}: ${label} | ${device.deviceId}`);
+        });
+
+        const tracks = stream.getAudioTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          appendStatus(`active track.label: ${track.label || "(hidden until permission granted)"}`);
+          appendStatus(`active track.readyState: ${track.readyState}`);
+        }
+      } catch (error) {
+        appendStatus(`enumerateDevices failed: ${error.message}`);
+      }
+    }
+
+    function calculateRMS(buffer) {
+      let sumSquares = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const value = buffer[i];
+        sumSquares += value * value;
+      }
+      return Math.sqrt(sumSquares / buffer.length);
+    }
+
+    function getAverageDbInBand(freqDbArray, lowFreq, highFreq, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const binCount = freqDbArray.length;
+      const startIndex = Math.max(0, Math.floor((lowFreq / nyquist) * binCount));
+      const endIndex = Math.min(binCount - 1, Math.ceil((highFreq / nyquist) * binCount));
+
+      if (endIndex < startIndex) return -100;
+
+      let sum = 0;
+      let count = 0;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const db = freqDbArray[i];
+        if (isFinite(db)) {
+          sum += db;
+          count++;
+        }
+      }
+
+      if (count === 0) return -100;
+      return sum / count;
+    }
+
+    function getThirdOctaveBandValues(freqDbArray, sampleRate) {
+      const nyquist = sampleRate / 2;
+      const bandValues = [];
+
+      for (const centerFreq of thirdOctaveCenters) {
+        const low = centerFreq / Math.pow(2, 1 / 6);
+        const high = centerFreq * Math.pow(2, 1 / 6);
+        if (low >= nyquist) continue;
+
+        const avgDb = getAverageDbInBand(freqDbArray, low, Math.min(high, nyquist), sampleRate);
+        const dbRaw = isFinite(avgDb) ? avgDb : -100;
+        const dbCal = applyCalibration(dbRaw);
+
+        bandValues.push({
+          centerFreq,
+          low,
+          high,
+          dbRaw,
+          dbCal,
+          linear: dbToLinearEnergy(dbCal)
+        });
+      }
+
+      return bandValues;
+    }
+
+    function smoothLinearValue(previousValue, instantValue, dtSec, timeConstantSec) {
+      if (previousValue === null || !isFinite(previousValue)) {
+        return instantValue;
+      }
+      const alpha = 1 - Math.exp(-dtSec / Math.max(0.001, timeConstantSec));
+      return previousValue + alpha * (instantValue - previousValue);
+    }
+
+    function draw() {
+      animationId = requestAnimationFrame(draw);
+
+      const nowSec = performance.now() * 0.001;
+      let dtSec = 1 / 60;
+      if (previousFrameTimeSec !== null) {
+        dtSec = clamp(nowSec - previousFrameTimeSec, 0.001, 0.25);
+      }
+      previousFrameTimeSec = nowSec;
+
+      analyser.getFloatTimeDomainData(timeData);
+      analyser.getFloatFrequencyData(freqData);
+
+      const rms = calculateRMS(timeData);
+      const rmsDbFs = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      const bandValues = getThirdOctaveBandValues(freqData, audioContext.sampleRate);
+
+      const supportBands = bandValues.filter(band => band.centerFreq >= 20 && band.centerFreq <= 63);
+      const supportLinear = supportBands.reduce((sum, band) => sum + band.linear, 0);
+
+      const irritationBands = bandValues.filter(band => band.centerFreq === 80 || band.centerFreq === 100);
+      const irritationLinear = irritationBands.reduce((sum, band) => sum + band.linear, 0) || dbToLinearEnergy(applyCalibration(-100));
+
+      const audioBands = bandValues.filter(band => band.centerFreq >= 125);
+      const audioLinear = audioBands.reduce((sum, band) => sum + band.linear, 0);
+
+      const fullLinear = bandValues.reduce((sum, band) => sum + band.linear, 0) || dbToLinearEnergy(applyCalibration(rmsDbFs));
+
+      supportShortLinear = smoothLinearValue(supportShortLinear, supportLinear, dtSec, shortTermTimeConstantSec);
+      irritationShortLinear = smoothLinearValue(irritationShortLinear, irritationLinear, dtSec, shortTermTimeConstantSec);
+      audioShortLinear = smoothLinearValue(audioShortLinear, audioLinear, dtSec, shortTermTimeConstantSec);
+      fullShortLinear = smoothLinearValue(fullShortLinear, fullLinear, dtSec, shortTermTimeConstantSec);
+
+      const supportDb = linearEnergyToDb(supportLinear);
+      const supportShortDb = linearEnergyToDb(supportShortLinear);
+
+      const irritationDb = linearEnergyToDb(irritationLinear);
+      const irritationShortDb = linearEnergyToDb(irritationShortLinear);
+
+      const audioDb = linearEnergyToDb(audioLinear);
+      const audioShortDb = linearEnergyToDb(audioShortLinear);
+
+      const fullDb = linearEnergyToDb(fullLinear);
+      const fullShortDb = linearEnergyToDb(fullShortLinear);
+
+      renderCanvas(bandValues, {
+        supportDb,
+        supportShortDb,
+        irritationDb,
+        irritationShortDb,
+        audioDb,
+        audioShortDb,
+        fullDb,
+        fullShortDb,
+        rmsDbFs
+      });
+    }
+
+    function renderCanvas(bandValues, meters) {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+
+      const outerLeft = 60;
+      const outerRight = 20;
+      const top = 20;
+      const bottom = 62;
+      const plotW = w - outerLeft - outerRight;
+      const plotH = h - top - bottom;
+
+      const dividerGap = 18;
+      const derivedCount = 4;
+      const derivedBarW = 56;
+      const derivedGap = 14;
+      const derivedSectionW = derivedCount * derivedBarW + (derivedCount - 1) * derivedGap;
+      const spectrumW = plotW - dividerGap - derivedSectionW;
+
+      const spectrumLeft = outerLeft;
+      const spectrumRight = spectrumLeft + spectrumW;
+      const derivedLeft = spectrumRight + dividerGap;
+
+      drawGrid(spectrumLeft, top, plotW, plotH, displayMinDb, displayMaxDb);
+      drawSpectrumBars(bandValues, spectrumLeft, top, spectrumW, plotH, displayMinDb, displayMaxDb);
+
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(spectrumRight + dividerGap / 2, top);
+      ctx.lineTo(spectrumRight + dividerGap / 2, top + plotH);
+      ctx.stroke();
+
+      const derivedBars = [
+        {
+          label: "Support",
+          color: "#8ef",
+          stroke: "#e8fbff",
+          instantDb: meters.supportDb,
+          shortDb: meters.supportShortDb,
+          bottom1: `3 s ${meters.supportShortDb.toFixed(1)}`,
+          bottom2: "LRA --"
+        },
+        {
+          label: "Irrit.",
+          color: "#ffb347",
+          stroke: "#ffe2b5",
+          instantDb: meters.irritationDb,
+          shortDb: meters.irritationShortDb,
+          bottom1: `3 s ${meters.irritationShortDb.toFixed(1)}`,
+          bottom2: "LRA --"
+        },
+        {
+          label: "Audio",
+          color: "#c7a2ff",
+          stroke: "#efd8ff",
+          instantDb: meters.audioDb,
+          shortDb: meters.audioShortDb,
+          bottom1: `3 s ${meters.audioShortDb.toFixed(1)}`,
+          bottom2: "LRA --"
+        },
+        {
+          label: "Full",
+          color: "#ff6666",
+          stroke: "#ffd0d0",
+          instantDb: meters.fullDb,
+          shortDb: meters.fullShortDb,
+          bottom1: `3 s ${meters.fullShortDb.toFixed(1)}`,
+          bottom2: `RMS ${meters.rmsDbFs.toFixed(1)}`
+        }
+      ];
+
+      for (let i = 0; i < derivedBars.length; i++) {
+        const x = derivedLeft + i * (derivedBarW + derivedGap);
+        drawDerivedBar(x, top, derivedBarW, plotH, derivedBars[i], displayMinDb, displayMaxDb);
+      }
+
+      ctx.fillStyle = "#ddd";
+      ctx.font = "12px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText(document.title, spectrumLeft, 14);
+    }
+
+    function drawGrid(left, top, plotW, plotH, minDb, maxDb) {
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 1;
+      const ticks = buildTicksForRange(minDb, maxDb);
+
+      for (const db of ticks) {
+        const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const y = top + (1 - norm) * plotH;
+
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + plotW, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#b3b3b3";
+        ctx.font = "11px Arial";
+        ctx.textAlign = "right";
+        ctx.fillText(`${db.toFixed(0)}`, left - 8, y + 4);
+      }
+
+      ctx.strokeStyle = "#666";
+      ctx.strokeRect(left, top, plotW, plotH);
+    }
+
+    function drawSpectrumBars(bandValues, left, top, plotW, plotH, minDb, maxDb) {
+      const barGap = 4;
+      const barWidth = (plotW - barGap * (bandValues.length - 1)) / bandValues.length;
+
+      for (let i = 0; i < bandValues.length; i++) {
+        const band = bandValues[i];
+        const x = left + i * (barWidth + barGap);
+
+        const norm = clamp((band.dbCal - minDb) / (maxDb - minDb), 0, 1);
+        const barHeight = norm * plotH;
+        const y = top + (plotH - barHeight);
+
+        const isSupportBand = band.centerFreq >= 20 && band.centerFreq <= 63;
+        const isIrritationBand = band.centerFreq === 80 || band.centerFreq === 100;
+        const isAudioBand = band.centerFreq >= 125;
+
+        ctx.fillStyle = isSupportBand ? "#8ef" : (isIrritationBand ? "#ffb347" : (isAudioBand ? "#c7a2ff" : "#7cf"));
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        ctx.strokeStyle = isSupportBand ? "#e8fbff" : (isIrritationBand ? "#ffe2b5" : (isAudioBand ? "#efd8ff" : "#bfe3ff"));
+        ctx.strokeRect(x, y, barWidth, barHeight);
+
+        ctx.save();
+        ctx.fillStyle = "#ddd";
+        ctx.font = "10px Arial";
+        ctx.textAlign = "center";
+        ctx.translate(x + barWidth / 2, top + plotH + 18);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(formatFreqLabel(band.centerFreq), 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function drawDerivedBar(x, top, width, plotH, meter, minDb, maxDb) {
+      const instantNorm = clamp((meter.instantDb - minDb) / (maxDb - minDb), 0, 1);
+      const instantHeight = instantNorm * plotH;
+      const y = top + (plotH - instantHeight);
+
+      ctx.fillStyle = meter.color;
+      ctx.fillRect(x, y, width, instantHeight);
+
+      ctx.strokeStyle = meter.stroke;
+      ctx.strokeRect(x, y, width, instantHeight);
+
+      const shortNorm = clamp((meter.shortDb - minDb) / (maxDb - minDb), 0, 1);
+      const yShort = top + (1 - shortNorm) * plotH;
+
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 3, yShort);
+      ctx.lineTo(x + width - 3, yShort);
+      ctx.stroke();
+
+      // EN: Show the 3 s value just above the white marker line
+      ctx.fillStyle = meter.stroke;
+      ctx.font = "10px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`${meter.shortDb.toFixed(1)}`, x + width / 2, Math.max(top + 10, yShort - 6));
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "12px Arial";
+      ctx.fillText(meter.label, x + width / 2, top + plotH + 18);
+
+      ctx.fillStyle = "#aaa";
+      ctx.font = "10px Arial";
+      ctx.fillText(meter.bottom1, x + width / 2, top + plotH + 34);
+      ctx.fillText(meter.bottom2, x + width / 2, top + plotH + 48);
+    }
+
+    function buildTicksForRange(minDb, maxDb) {
+      const ticks = [];
+      const step = 10;
+      const start = Math.ceil(minDb / step) * step;
+
+      for (let db = start; db <= maxDb; db += step) {
+        ticks.push(db);
+      }
+
+      if (!ticks.includes(minDb)) ticks.unshift(minDb);
+      if (!ticks.includes(maxDb)) ticks.push(maxDb);
+      return ticks;
+    }
+
+    function formatFreqLabel(freq) {
+      if (freq >= 1000) {
+        const k = freq / 1000;
+        return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+      }
+      return `${freq}`;
+    }
+  </script>
+</body>
+</html>
