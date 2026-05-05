@@ -1,0 +1,3528 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>loudness-meter-v5.11-k04-scope-file-start</title>
+  <style>
+    :root {
+      --slider-track: #555;
+      --slider-fill: #cfcfcf;
+      --slider-thumb: #f2f2f2;
+    }
+
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    button,
+    input[type="range"] {
+      cursor: pointer;
+    }
+
+    button {
+      padding: 10px 16px;
+      font-size: 16px;
+      border-radius: 10px;
+      border: 1px solid #555;
+      background: #242424;
+      color: #eee;
+    }
+
+    button:hover:not(:disabled) {
+      background: #303030;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    .header {
+      width: 100%;
+      max-width: 1480px;
+      text-align: center;
+      margin-bottom: 2px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #eee;
+    }
+
+    .versionComment {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.45;
+      max-width: 980px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .panel {
+      width: 100%;
+      max-width: 1480px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .status {
+      font-size: 13px;
+      white-space: pre-wrap;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 10px;
+      line-height: 1.4;
+    }
+
+    .controls {
+      width: 100%;
+      max-width: 1480px;
+      display: grid;
+      gap: 8px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+
+    .controlRow {
+      display: grid;
+      grid-template-columns: 220px 1fr 90px;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .controlRow label,
+    .controlRow .value {
+      font-size: 14px;
+    }
+
+    .controlRow.inactive {
+      opacity: 0.45;
+    }
+
+    .controlRow.inactive input[type="range"] {
+      filter: grayscale(1);
+    }
+
+    .sliderWrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      height: 28px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      outline: none;
+      background: linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) 0%, var(--slider-track) 0%, var(--slider-track) 100%);
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: transparent;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      border: 1px solid #888;
+      margin-top: -5px;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+    }
+
+    input[type="range"]::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--slider-track);
+    }
+
+    input[type="range"]::-moz-range-progress {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--slider-fill);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      border: 1px solid #888;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+    }
+
+    .canvasWrap {
+      width: 100%;
+      max-width: 1480px;
+      background: #000;
+      border: 1px solid #333;
+      box-sizing: border-box;
+    }
+
+    canvas {
+      width: 100%;
+      height: 560px;
+      display: block;
+      background: #000;
+    }
+
+    @media (max-width: 760px) {
+      .controlRow {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="pageTitle"></h1>
+    <div class="versionComment" id="versionComment">v4.0</div>
+  </div>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%; max-width:1480px;">
+    <button id="startBtn">Start microphone</button>
+    <button id="testNoiseBtn">Start test noise</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#eee; font-size:14px;">
+      <span>Audio file</span>
+      <input id="audioFileInput" type="file" accept="audio/*" />
+    </label>
+    <button id="fileRestartBtn" disabled>Restart file</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#eee; font-size:14px; min-width:280px; flex:1;">
+      <span>File position</span>
+      <input id="fileSeekSlider" type="range" min="0" max="1000" step="1" value="0" disabled style="flex:1;" />
+      <span id="fileTimeLabel" style="min-width:96px; text-align:right; color:#aaa;">-- / --</span>
+    </label>
+    <button id="fileScopeFollowBtn" disabled>Follow scope: ON</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#eee; font-size:14px; min-width:280px; flex:1;">
+      <span>Scope window</span>
+      <input id="fileScopeSlider" type="range" min="0" max="1000" step="1" value="0" disabled style="flex:1;" />
+      <span id="fileScopeLabel" style="min-width:118px; text-align:right; color:#aaa;">--</span>
+    </label>
+    <button id="stopBtn">Stop audio</button>
+    <button id="pauseBtn">Pause analysis</button>
+    <button id="gateBtn">True gating: ON</button>
+  </div>
+
+  <div class="controls">
+    <div class="controlRow" id="micGainRow">
+      <label for="micGainSlider">Mic input gain</label>
+      <div class="sliderWrap">
+        <input id="micGainSlider" type="range" min="-20" max="120" step="0.5" value="60" />
+      </div>
+      <div class="value" id="micGainValue">60.0 dB</div>
+    </div>
+
+    <div class="controlRow" id="testGainRow">
+      <label for="testGainSlider">Test noise gain</label>
+      <div class="sliderWrap">
+        <input id="testGainSlider" type="range" min="-100" max="20" step="0.5" value="0" />
+      </div>
+      <div class="value" id="testGainValue">0.0 dB</div>
+    </div>
+
+    <div class="controlRow" id="sineFreqRow">
+      <label for="sineFreqSlider">Test sine frequency</label>
+      <div class="sliderWrap">
+        <input id="sineFreqSlider" type="range" min="1.30103" max="4.20412" step="0.001" value="3" />
+      </div>
+      <div class="value" id="sineFreqValue">1000 Hz</div>
+    </div>
+
+    <div class="controlRow" id="sineGainRow">
+      <label for="sineGainSlider">Test sine gain</label>
+      <div class="sliderWrap">
+        <input id="sineGainSlider" type="range" min="-80" max="20" step="0.5" value="-30" />
+      </div>
+      <div class="value" id="sineGainValue">-30.0 dB</div>
+    </div>
+
+    <div class="controlRow">
+      <label for="irritationPenaltySlider">TUFS irritation penalty</label>
+      <div class="sliderWrap">
+        <input id="irritationPenaltySlider" type="range" min="0" max="3" step="0.05" value="1.00" />
+      </div>
+      <div class="value" id="irritationPenaltyValue">1.00x</div>
+    </div>
+  </div>
+
+  <div class="canvasWrap">
+    <canvas id="viz" width="1400" height="560"></canvas>
+  </div>
+
+  <div class="panel">
+    <div id="status" class="status">Not started</div>
+  </div>
+
+  <script>
+    /*
+      Web Loudness Meter – v5.6 (experimental)
+
+      STATUS:
+      - Browser-based loudness visualization tool
+      - Supports microphone input, internal test noise, audio file playback, and whole-file offline analysis
+      - Includes spectrum bars, realtime/offline scopes, histogram, LRA-style dynamics, running K integrated estimate, and 10 s segment analysis
+      - Designed for debugging, iteration, and open-source development
+
+      EXPERIMENTAL FEATURE:
+      - TUFS is an experimental loudness-analysis idea developed alongside LUFS-style logic
+      - Current TUFS-related views split the spectrum into support, irritation, and audio regions
+      - TUFS is not standardized and should be treated as a research feature
+
+      LIMITATIONS:
+      - Not a full ITU-R BS.1770 / EBU R128 implementation; all loudness values are estimates
+      - Input gain is applied inside the realtime analysis path and remembered separately for mic and test noise
+      - Display scale is fixed; there is no separate SPL calibration in this prototype
+      - Internal test noise is useful for debugging, but is not a certified LUFS reference signal
+
+      ARCHITECTURE:
+      - Single-file prototype to keep the signal path transparent and easy to debug
+      - One active input path at a time: microphone, internal test noise, or decoded audio file
+      - Realtime and offline analysis store energy as raw linear values whenever possible
+      - Conversion to dB is intentionally delayed until metric, gating, or rendering time
+    */
+    // ==============================
+    // DOM REFERENCES
+    // ==============================
+    const startBtn = document.getElementById("startBtn");
+    const testNoiseBtn = document.getElementById("testNoiseBtn");
+    const audioFileInputEl = document.getElementById("audioFileInput");
+    const fileRestartBtn = document.getElementById("fileRestartBtn");
+    const fileSeekSliderEl = document.getElementById("fileSeekSlider");
+    const fileTimeLabelEl = document.getElementById("fileTimeLabel");
+    const fileScopeFollowBtn = document.getElementById("fileScopeFollowBtn");
+    const fileScopeSliderEl = document.getElementById("fileScopeSlider");
+    const fileScopeLabelEl = document.getElementById("fileScopeLabel");
+    const stopBtn = document.getElementById("stopBtn");
+    const pageTitleEl = document.getElementById("pageTitle");
+    const versionCommentEl = document.getElementById("versionComment");
+    const statusEl = document.getElementById("status");
+    const canvas = document.getElementById("viz");
+    const ctx = canvas.getContext("2d");
+
+    const micGainRowEl = document.getElementById("micGainRow");
+    const testGainRowEl = document.getElementById("testGainRow");
+    const micGainSliderEl = document.getElementById("micGainSlider");
+    const micGainValueEl = document.getElementById("micGainValue");
+    const testGainSliderEl = document.getElementById("testGainSlider");
+    const testGainValueEl = document.getElementById("testGainValue");
+    const sineFreqRowEl = document.getElementById("sineFreqRow");
+    const sineGainRowEl = document.getElementById("sineGainRow");
+    const sineFreqSliderEl = document.getElementById("sineFreqSlider");
+    const sineFreqValueEl = document.getElementById("sineFreqValue");
+    const sineGainSliderEl = document.getElementById("sineGainSlider");
+    const sineGainValueEl = document.getElementById("sineGainValue");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const gateBtn = document.getElementById("gateBtn");
+    const irritationPenaltySliderEl = document.getElementById("irritationPenaltySlider");
+    const irritationPenaltyValueEl = document.getElementById("irritationPenaltyValue");
+
+    pageTitleEl.textContent = document.title;
+    versionCommentEl.textContent = "v5.11 – K 0.4 s scope label added, K adaptation release slowed to 5 dB/s, and audio-file loading now stops old sources earlier and starts playback before offline analysis finishes.";
+
+    // ==============================
+    // DEBUG / DIAGNOSTICS
+    // ==============================
+    // EN: Keep false during normal use to avoid noisy 1 Hz console logging.
+    // EN: Set true temporarily when inspecting analyser or exposure state in DevTools.
+    const DEBUG_LOGS = false;
+
+    // ==============================
+    // CENTRAL STATE SCAFFOLD
+    // ==============================
+    // EN: New code should prefer this state container.
+    // EN: Existing globals are intentionally left in place to avoid risky behavior changes in the single-file prototype.
+    const state = {
+      audio: {
+        mode: null,
+        paused: false
+      },
+      analysis: {
+        paused: false
+      },
+      histories: {
+        loudness: {},
+        histogram: {},
+        scope: {}
+      },
+      layout: {}
+    };
+
+    // ==============================
+    // AUDIO NODES & RUNTIME FLAGS
+    // ==============================
+    let audioContext = null;
+    let analyser = null;
+    let kAnalyser = null;
+    let kPreFilterNode = null;
+    let kHighpassNode = null;
+    let source = null;
+    let micStream = null;
+    let micGainNode = null;
+    let freqData = null;
+    let timeData = null;
+    let kTimeData = null;
+    let animationId = null;
+
+    let activeInputMode = null;
+    let analysisPaused = false;
+    let testNoiseGainNode = null;
+    let testNoiseHighpassNode = null;
+    let testNoiseBufferSource = null;
+    let fileAudioBuffer = null;
+    let fileBufferSource = null;
+    let fileGainNode = null;
+    let fileStartedAtContextTime = 0;
+    let filePlaybackOffsetSec = 0;
+    let fileSeekIsDragging = false;
+    let fileScopeViewStartSec = 0;
+    let fileScopeFollowPlayback = true;
+    let fileScopeSliderIsDragging = false;
+    let lastFileStatusUpdateMs = 0;
+    let lastRealtimeStatusUpdateMs = 0;
+
+    // EN: Whole-file offline analysis cache for decoded audio files.
+    // EN: Values are stored as linear energy and converted to dB only for display.
+    const fileAnalysis = {
+      ready: false,
+      running: false,
+      fileName: "",
+      sampleRate: 0,
+      durationSec: 0,
+      blockStepSec: 0.1,
+      blockSizeSec: 0.4,
+      times: [],
+      rms04: [],
+      rms3: [],
+      k04: [],
+      k3: [],
+      k30: [],
+      kAdaptive: [],
+      kAdaptiveLookAhead: [],
+      peak04: [],
+      kIntegratedEstimateDb: null,
+      gateThresholdDb: null,
+      lraEstimateDb: null,
+      lraGateThresholdDb: null,
+      lraP10Db: null,
+      lraP95Db: null,
+      lraAcceptedCount: 0,
+      lraTotalCount: 0,
+      absoluteAcceptedCount: 0,
+      relativeAcceptedCount: 0,
+      totalBlockCount: 0,
+      segmentSec: 10,
+      segments: [],
+      loudestSegmentIndex: -1,
+      quietestSegmentIndex: -1,
+      segmentRangeLu: null
+    };
+
+    let testSineOscillatorNode = null;
+    let testSineGainNode = null;
+    let lastAnalyserDebugLogTimeMs = 0;
+    let lastExposureDebugLogTimeMs = 0;
+    let gateFlashUntilMs = 0;
+
+    // EN: Tracks if the CURRENT short-term block is rejected by the gate.
+    // EN: Used for momentary flash instead of persistent "gate active" shading.
+    let gateBlockRejectedNow = false;
+
+    let audioPaused = false;
+
+    let micInputGainDb = 60;
+    let testInputGainDb = 0;
+    let testSineFrequencyHz = logSliderValueToFrequency(Number(sineFreqSliderEl.value));
+    let testSineGainDb = Number(sineGainSliderEl.value);
+    let irritationPenalty = Number(irritationPenaltySliderEl.value);
+
+    // ==============================
+    // ANALYSIS CONSTANTS
+    // ==============================
+    const displayMinDb = -60;
+    const displayMaxDb = 12;
+    
+    const thirdOctaveCenters = [
+      20, 25, 31.5, 40, 50, 63, 80, 100, 125,
+      160, 200, 250, 315, 400, 500, 630, 800,
+      1000, 1250, 1600, 2000, 2500, 3150, 4000,
+      5000, 6300, 8000, 10000, 12500, 16000
+    ];
+
+    const shortTermWindowSec = 3.0;
+
+    // EN: Experimental program-context window.
+    // EN: v5.1 uses 10 s instead of 30 s to test faster section-level response.
+    // EN: It must average LINEAR energy, not dB values, because dB averaging is physically wrong for energy.
+    const longTermExposureWindowSec = 10.0;
+
+    // ==============================
+    // K ENVELOPE FOLLOWER + LOOK-AHEAD
+    // ==============================
+    // EN: Experimental psychoacoustic-style context model, not a LUFS standard.
+    // EN: Fast attack follows 0.4 s K energy so sudden loud events raise context quickly.
+    // EN: A short hold prevents immediate release between adjacent loud blocks.
+    // EN: Release is a constant dB/s slope, closer to a broadcast-style envelope follower than a moving average.
+    const kEnvelopeAttackTauSec = 0.08;
+    const kEnvelopeHoldSec = 1.00;
+    const kEnvelopeReleaseDbPerSec = 5.0;
+    const kEnvelopeDynamicRangeDb = 60.0;
+    const kEnvelopeStartEaseDb = 10.0;
+    const kEnvelopeEndEaseDb = 10.0;
+    const kEnvelopeFloorDb = -100.0;
+    const kEnvelopeLookAheadSec = 0.20;
+    let kAdaptiveContextLinear = null;
+    let kEnvelopeDb = kEnvelopeFloorDb;
+    let kEnvelopePeakDb = kEnvelopeFloorDb;
+    let kEnvelopeHoldTimerSec = 0.0;
+
+    const loudnessUpdateHz = 10;
+    const loudnessUpdateIntervalSec = 1 / loudnessUpdateHz;
+    const kEnvelopeLookAheadSteps = Math.max(1, Math.round(kEnvelopeLookAheadSec / loudnessUpdateIntervalSec));
+
+    // EN: Realtime integrated loudness estimate uses 400 ms K-weighted blocks updated at 10 Hz.
+    // EN: The first seconds are explicitly marked as warm-up because the relative gate needs enough history.
+    const realtimeIntegratedBlockWindowSec = 0.4;
+    const realtimeIntegratedMinBlocks = 100;
+
+    // EN: Scope windows for fast level diagnostics. These are display meters, not BS.1770 true-peak meters.
+    const fastLevelWindowSec = 0.4;
+    const levelScopeWindowSec = 20.0;
+
+    const maxHistogramHistorySec = 180;
+    const histogramMinDb = -60;
+    const histogramMaxDb = 12;
+    const histogramBinSizeDb = 1;
+
+    // EN: Basic gating toggle for testing histogram / LRA behavior.
+    // EN: This can be switched on and off live without rebuilding the audio path.
+    let histogramGateEnabled = true;
+
+    let previousFrameTimeSec = null;
+    let loudnessUpdateAccumSec = 0;
+
+    // ==============================
+    // ENERGY HISTORIES
+    // ==============================
+    // EN: Store timestamped linear-energy samples so short-term loudness uses a true 3 s sliding window.
+    let supportShortHistory = [];
+    let irritationShortHistory = [];
+    let audioShortHistory = [];
+    let fullShortHistory = [];
+    let fullShortRawHistory = [];
+
+    // EN: 10 s Full-band exposure history, stored as linear energy.
+    // EN: This is intentionally separate from histogram/LRA history so existing gating logic stays untouched.
+    let fullLongExposureHistory = [];
+
+    // EN: K-weighted histories are parallel debug meters.
+    // EN: v4.15 uses K short-term history for the visible histogram/gate diagnostic.
+    let kWeightedShortHistory = [];
+    let kWeightedLongExposureHistory = [];
+
+    // EN: Store recent Full and K short-term histories as RAW LINEAR values.
+    // EN: Conversion to dB is applied later so the histogram pipeline stays energy-based.
+    let fullShortTermRawHistory = [];
+    let kWeightedShortTermRawHistory = [];
+
+    // EN: Running K-I estimate history. Blocks are 400 ms K-weighted mean-square values.
+    // EN: This is more standard-like for integrated loudness than using 3 s short-term values.
+    let kRealtimeMomentaryWindowHistory = [];
+    let kRealtimeIntegratedBlockHistory = [];
+
+    // EN: LRA estimate uses 3 s K-weighted short-term values sampled at 1 Hz.
+    // EN: This is closer to EBU-style LRA than using every 10 Hz history sample.
+    let kWeightedLraShortTermHistory = [];
+    let lastLraSampleTimeSec = null;
+
+    // EN: Raw time-domain level histories for the 20 s scope.
+    // EN: Peak uses sample-peak energy (max abs sample squared), not oversampled true peak.
+    let levelPeakFastHistory = [];
+    let levelRmsFastHistory = [];
+    let levelScopeHistory = [];
+
+    // ==============================
+    // UI INITIALIZATION & EVENTS
+    // ==============================
+    updateSliderVisual(micGainSliderEl);
+    updateSliderVisual(testGainSliderEl);
+    updateSliderVisual(sineFreqSliderEl);
+    updateSliderVisual(sineGainSliderEl);
+    updateSliderVisual(irritationPenaltySliderEl);
+
+    function refreshGainSliderUI() {
+      micGainSliderEl.value = String(micInputGainDb);
+      micGainValueEl.textContent = `${micInputGainDb.toFixed(1)} dB`;
+      testGainSliderEl.value = String(testInputGainDb);
+      testGainValueEl.textContent = `${testInputGainDb.toFixed(1)} dB`;
+      sineFreqSliderEl.value = String(frequencyToLogSliderValue(testSineFrequencyHz));
+      sineFreqValueEl.textContent = formatSineFrequency(testSineFrequencyHz);
+      sineGainSliderEl.value = String(testSineGainDb);
+      sineGainValueEl.textContent = `${testSineGainDb.toFixed(1)} dB`;
+
+      updateSliderVisual(micGainSliderEl);
+      updateSliderVisual(testGainSliderEl);
+      updateSliderVisual(sineFreqSliderEl);
+      updateSliderVisual(sineGainSliderEl);
+
+      const micIsActive = activeInputMode === "mic";
+      const testIsActive = activeInputMode === "test";
+
+      micGainRowEl.classList.toggle("inactive", activeInputMode !== null && !micIsActive);
+      testGainRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+      sineFreqRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+      sineGainRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+
+      console.log("[inputGainUI] refreshed", {
+        activeInputMode,
+        micInputGainDb,
+        testInputGainDb
+      });
+    }
+
+    function updateControlActiveState() {
+      const micIsActive = activeInputMode === "mic";
+      const testIsActive = activeInputMode === "test";
+
+      micGainRowEl.classList.toggle("inactive", activeInputMode !== null && !micIsActive);
+      testGainRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+      sineFreqRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+      sineGainRowEl.classList.toggle("inactive", activeInputMode !== null && !testIsActive);
+    }
+
+    function logSliderValueToFrequency(logValue) {
+      return Math.pow(10, logValue);
+    }
+
+    function frequencyToLogSliderValue(freqHz) {
+      return Math.log10(Math.max(1, freqHz));
+    }
+
+    function formatSineFrequency(freqHz) {
+      if (freqHz >= 1000) {
+        return `${(freqHz / 1000).toFixed(freqHz >= 10000 ? 1 : 2)} kHz`;
+      }
+      return `${freqHz.toFixed(freqHz >= 100 ? 0 : 1)} Hz`;
+    }
+
+    function gainDbToLinear(dbValue) {
+      return Math.pow(10, dbValue / 20);
+    }
+
+    function updateMicInputGain(isInitialStart = false) {
+      if (!micGainNode || !audioContext) return;
+      const targetGainDb = micInputGainDb;
+      const linearGain = gainDbToLinear(targetGainDb);
+      const now = audioContext.currentTime;
+
+      micGainNode.gain.cancelScheduledValues(now);
+      if (isInitialStart) {
+        micGainNode.gain.setValueAtTime(0.0001, now);
+        micGainNode.gain.exponentialRampToValueAtTime(linearGain, now + 0.15);
+      } else {
+        micGainNode.gain.setTargetAtTime(linearGain, now, 0.02);
+      }
+
+      console.log("[microphone] input gain updated from slider", { targetGainDb, linearGain, isInitialStart });
+    }
+
+    micGainSliderEl.addEventListener("input", () => {
+      micInputGainDb = Number(micGainSliderEl.value);
+      micGainValueEl.textContent = `${micInputGainDb.toFixed(1)} dB`;
+      updateSliderVisual(micGainSliderEl);
+
+      console.log("[micGainSlider] input", {
+        micInputGainDb,
+        activeInputMode
+      });
+
+      if (activeInputMode === "mic" && micGainNode) {
+        updateMicInputGain();
+      }
+    });
+
+    testGainSliderEl.addEventListener("input", () => {
+      testInputGainDb = Number(testGainSliderEl.value);
+      testGainValueEl.textContent = `${testInputGainDb.toFixed(1)} dB`;
+      updateSliderVisual(testGainSliderEl);
+
+      console.log("[testGainSlider] input", {
+        testInputGainDb,
+        activeInputMode
+      });
+
+      if (activeInputMode === "test" && testNoiseGainNode) {
+        updateTestNoiseLevel();
+      }
+    });
+
+    sineFreqSliderEl.addEventListener("input", () => {
+      testSineFrequencyHz = logSliderValueToFrequency(Number(sineFreqSliderEl.value));
+      sineFreqValueEl.textContent = formatSineFrequency(testSineFrequencyHz);
+      updateSliderVisual(sineFreqSliderEl);
+
+      console.log("[sineFreqSlider] input", {
+        testSineFrequencyHz,
+        activeInputMode
+      });
+
+      if (activeInputMode === "test" && testSineOscillatorNode) {
+        updateTestSineFrequency();
+      }
+    });
+
+    sineGainSliderEl.addEventListener("input", () => {
+      testSineGainDb = Number(sineGainSliderEl.value);
+      sineGainValueEl.textContent = `${testSineGainDb.toFixed(1)} dB`;
+      updateSliderVisual(sineGainSliderEl);
+
+      console.log("[sineGainSlider] input", {
+        testSineGainDb,
+        activeInputMode
+      });
+
+      if (activeInputMode === "test" && testSineGainNode) {
+        updateTestSineLevel();
+      }
+    });
+
+    irritationPenaltySliderEl.addEventListener("input", () => {
+      irritationPenalty = Number(irritationPenaltySliderEl.value);
+      irritationPenaltyValueEl.textContent = `${irritationPenalty.toFixed(2)}x`;
+      updateSliderVisual(irritationPenaltySliderEl);
+      console.log("[irritationPenaltySlider] input", {
+        value: irritationPenalty
+      });
+    });
+
+    refreshGainSliderUI();
+    updateControlActiveState();
+    updateStopButtonUI();
+    updateFilePlaybackUI();
+
+    gateBtn.addEventListener("click", () => {
+      histogramGateEnabled = !histogramGateEnabled;
+      gateBtn.textContent = `True gating: ${histogramGateEnabled ? "ON" : "OFF"}`;
+      console.log("[gateBtn] toggle", { histogramGateEnabled });
+      appendStatus(`histogram gating: ${histogramGateEnabled ? "ON" : "OFF"}`);
+    });
+
+    // ==============================
+    // AUDIO INPUT & ROUTING
+    // ==============================
+    function ensureAudioContext() {
+      if (audioContext) {
+        console.log("[audioContext] reuse existing context", {
+          state: audioContext.state,
+          sampleRate: audioContext.sampleRate,
+          activeInputMode
+        });
+        return audioContext;
+      }
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("[audioContext] created", {
+        state: audioContext.state,
+        sampleRate: audioContext.sampleRate
+      });
+      return audioContext;
+    }
+
+    async function resumeAudioContextIfNeeded(reason) {
+      if (!audioContext) return;
+      console.log("[audioContext] resume check", { reason, state: audioContext.state });
+      if (audioContext.state !== "running") {
+        await audioContext.resume();
+        console.log("[audioContext] resumed", { reason, state: audioContext.state });
+      }
+    }
+
+    function setupAnalyser() {
+      if (analyser) {
+        console.log("[analyser] reuse existing analyser", {
+          fftSize: analyser.fftSize,
+          frequencyBinCount: analyser.frequencyBinCount
+        });
+        return analyser;
+      }
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.85;
+      analyser.minDecibels = -100;
+      analyser.maxDecibels = -20;
+
+      freqData = new Float32Array(analyser.frequencyBinCount);
+      timeData = new Float32Array(analyser.fftSize);
+
+      console.log("[analyser] created", {
+        fftSize: analyser.fftSize,
+        frequencyBinCount: analyser.frequencyBinCount,
+        smoothingTimeConstant: analyser.smoothingTimeConstant
+      });
+
+      setupKWeightedAnalyser();
+      return analyser;
+    }
+
+    function setupKWeightedAnalyser() {
+      if (kAnalyser) {
+        console.log("[kWeighting] reuse existing analyser", {
+          fftSize: kAnalyser.fftSize,
+          frequencyBinCount: kAnalyser.frequencyBinCount
+        });
+        return kAnalyser;
+      }
+
+      // EN: Parallel K-style path for comparison only.
+      // EN: This approximates BS.1770-style weighting with a high shelf plus low-frequency high-pass.
+      // EN: It intentionally does not replace the existing Full / histogram / gate path in v4.12.
+      kPreFilterNode = audioContext.createBiquadFilter();
+      kPreFilterNode.type = "highshelf";
+      kPreFilterNode.frequency.value = 1500;
+      kPreFilterNode.gain.value = 4.0;
+
+      kHighpassNode = audioContext.createBiquadFilter();
+      kHighpassNode.type = "highpass";
+      kHighpassNode.frequency.value = 60;
+      kHighpassNode.Q.value = 0.5;
+
+      kAnalyser = audioContext.createAnalyser();
+      kAnalyser.fftSize = analyser ? analyser.fftSize : 8192;
+      kAnalyser.smoothingTimeConstant = 0.0;
+
+      kTimeData = new Float32Array(kAnalyser.fftSize);
+
+      kPreFilterNode.connect(kHighpassNode);
+      kHighpassNode.connect(kAnalyser);
+
+      console.log("[kWeighting] created parallel K-style analyser", {
+        highShelfHz: kPreFilterNode.frequency.value,
+        highShelfGainDb: kPreFilterNode.gain.value,
+        highpassHz: kHighpassNode.frequency.value,
+        highpassQ: kHighpassNode.Q.value
+      });
+
+      return kAnalyser;
+    }
+
+    function connectAnalysisOutputs(inputNode) {
+      inputNode.connect(analyser);
+      setupKWeightedAnalyser();
+      inputNode.connect(kPreFilterNode);
+    }
+
+    function stopTestNoiseIfRunning() {
+      if (testSineOscillatorNode) {
+        console.log("[testSine] stopping oscillator");
+        try {
+          testSineOscillatorNode.stop();
+        } catch (error) {
+          console.warn("[testSine] stop failed", error);
+        }
+        try {
+          testSineOscillatorNode.disconnect();
+        } catch (error) {
+          console.warn("[testSine] oscillator disconnect failed", error);
+        }
+        testSineOscillatorNode = null;
+      }
+
+      if (testSineGainNode) {
+        try {
+          testSineGainNode.disconnect();
+        } catch (error) {
+          console.warn("[testSine] gain disconnect failed", error);
+        }
+        testSineGainNode = null;
+      }
+
+      if (testNoiseBufferSource) {
+        console.log("[testNoise] stopping existing buffer source");
+        try {
+          testNoiseBufferSource.onended = null;
+          testNoiseBufferSource.stop();
+        } catch (error) {
+          console.warn("[testNoise] stop failed", error);
+        }
+        try {
+          testNoiseBufferSource.disconnect();
+        } catch (error) {
+          console.warn("[testNoise] disconnect failed", error);
+        }
+        testNoiseBufferSource = null;
+      }
+
+      if (testNoiseHighpassNode) {
+        try {
+          testNoiseHighpassNode.disconnect();
+        } catch (error) {
+          console.warn("[testNoise] highpass disconnect failed", error);
+        }
+        testNoiseHighpassNode = null;
+      }
+
+      if (testNoiseGainNode) {
+        try {
+          testNoiseGainNode.disconnect();
+        } catch (error) {
+          console.warn("[testNoise] gain disconnect failed", error);
+        }
+        testNoiseGainNode = null;
+      }
+    }
+
+    function stopMicrophoneIfRunning() {
+      if (source) {
+        console.log("[microphone] disconnecting media stream source");
+        try {
+          source.disconnect();
+        } catch (error) {
+          console.warn("[microphone] source disconnect failed", error);
+        }
+        source = null;
+      }
+
+      if (micGainNode) {
+        console.log("[microphone] disconnecting mic gain node");
+        try {
+          micGainNode.disconnect();
+        } catch (error) {
+          console.warn("[microphone] mic gain disconnect failed", error);
+        }
+        micGainNode = null;
+      }
+
+      if (micStream) {
+        const tracks = micStream.getTracks();
+        console.log("[microphone] stopping tracks", { trackCount: tracks.length });
+        tracks.forEach((track, index) => {
+          console.log("[microphone] stopping track", { index, kind: track.kind, label: track.label, readyState: track.readyState });
+          try {
+            track.stop();
+          } catch (error) {
+            console.warn("[microphone] track stop failed", error);
+          }
+        });
+        micStream = null;
+      }
+    }
+
+    function stopFileIfRunning() {
+      if (fileBufferSource) {
+        console.log("[file] stopping existing file source");
+        try {
+          fileBufferSource.onended = null;
+          fileBufferSource.stop();
+        } catch (error) {
+          console.warn("[file] stop failed", error);
+        }
+        try {
+          fileBufferSource.disconnect();
+        } catch (error) {
+          console.warn("[file] source disconnect failed", error);
+        }
+        fileBufferSource = null;
+      }
+
+      if (fileGainNode) {
+        try {
+          fileGainNode.disconnect();
+        } catch (error) {
+          console.warn("[file] gain disconnect failed", error);
+        }
+        fileGainNode = null;
+      }
+
+      fileStartedAtContextTime = 0;
+      filePlaybackOffsetSec = 0;
+      updateFilePlaybackUI();
+    }
+
+    function disconnectAnalyserFromDestination() {
+      if (!analyser) return;
+      try {
+        analyser.disconnect();
+        console.log("[analyser] disconnected from destination");
+      } catch (error) {
+        console.warn("[analyser] disconnect failed", error);
+      }
+    }
+
+    function updateStopButtonUI() {
+      stopBtn.textContent = audioPaused ? "Continue audio" : "Stop audio";
+    }
+
+    function formatTimeSec(timeSec) {
+      if (!isFinite(timeSec)) return "--";
+      const safeTime = Math.max(0, timeSec);
+      const minutes = Math.floor(safeTime / 60);
+      const seconds = safeTime - minutes * 60;
+      return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
+    }
+
+    function getFilePlaybackTimeSec() {
+      if (!audioContext || activeInputMode !== "file" || !fileAudioBuffer) return 0;
+      return clamp(audioContext.currentTime - fileStartedAtContextTime, 0, fileAudioBuffer.duration);
+    }
+
+    function updateFilePlaybackUI() {
+      const fileIsAvailable = !!fileAudioBuffer;
+      const fileIsActive = activeInputMode === "file" && fileIsAvailable;
+
+      fileRestartBtn.disabled = !fileIsAvailable;
+      fileSeekSliderEl.disabled = !fileIsAvailable;
+      fileScopeFollowBtn.disabled = !fileIsAvailable;
+      fileScopeSliderEl.disabled = !fileIsAvailable || fileScopeFollowPlayback;
+      fileScopeFollowBtn.textContent = `Follow scope: ${fileScopeFollowPlayback ? "ON" : "OFF"}`;
+
+      if (!fileIsAvailable) {
+        fileSeekSliderEl.value = "0";
+        fileScopeSliderEl.value = "0";
+        fileTimeLabelEl.textContent = "-- / --";
+        fileScopeLabelEl.textContent = "--";
+        return;
+      }
+
+      const durationSec = fileAudioBuffer.duration;
+      const positionSec = fileIsActive ? getFilePlaybackTimeSec() : filePlaybackOffsetSec;
+      const maxScopeStartSec = Math.max(0, durationSec - levelScopeWindowSec);
+
+      if (fileScopeFollowPlayback) {
+        // EN: In follow mode the right edge of the offline scope is the playback cursor.
+        // EN: At the beginning this allows a negative virtual start time, leaving empty space on the left like realtime scope startup.
+        fileScopeViewStartSec = positionSec - levelScopeWindowSec;
+      } else {
+        fileScopeViewStartSec = clamp(fileScopeViewStartSec, 0, maxScopeStartSec);
+      }
+
+      if (!fileSeekIsDragging) {
+        const sliderValue = durationSec > 0 ? Math.round((positionSec / durationSec) * 1000) : 0;
+        fileSeekSliderEl.value = String(clamp(sliderValue, 0, 1000));
+      }
+
+      if (!fileScopeSliderIsDragging) {
+        const scopeSliderValue = maxScopeStartSec > 0 ? Math.round((fileScopeViewStartSec / maxScopeStartSec) * 1000) : 0;
+        fileScopeSliderEl.value = String(clamp(scopeSliderValue, 0, 1000));
+      }
+
+      const scopeEndSec = fileScopeFollowPlayback
+        ? positionSec
+        : Math.min(durationSec, fileScopeViewStartSec + levelScopeWindowSec);
+      const scopeLabelStartSec = Math.max(0, fileScopeViewStartSec);
+      fileTimeLabelEl.textContent = `${formatTimeSec(positionSec)} / ${formatTimeSec(durationSec)}`;
+      fileScopeLabelEl.textContent = `${formatTimeSec(scopeLabelStartSec)}–${formatTimeSec(scopeEndSec)}`;
+    }
+
+    async function toggleAudioPause() {
+      console.log("[audio] toggleAudioPause", {
+        audioPaused,
+        hasAudioContext: !!audioContext,
+        audioContextState: audioContext ? audioContext.state : "none",
+        activeInputMode
+      });
+
+      if (!audioContext || !activeInputMode) {
+        appendStatus("No active audio source to stop or continue.");
+        return;
+      }
+
+      if (!audioPaused) {
+        try {
+          await audioContext.suspend();
+          audioPaused = true;
+          updateStopButtonUI();
+          appendStatus(`Audio paused (${activeInputMode}).`);
+          console.log("[audio] context suspended", { state: audioContext.state, activeInputMode });
+        } catch (error) {
+          console.error("[audio] suspend failed", error);
+          appendStatus(`Audio pause failed: ${error.message}`);
+        }
+        return;
+      }
+
+      try {
+        await audioContext.resume();
+        audioPaused = false;
+        updateStopButtonUI();
+        appendStatus(`Audio continued (${activeInputMode}).`);
+        console.log("[audio] context resumed from toggle", { state: audioContext.state, activeInputMode });
+      } catch (error) {
+        console.error("[audio] resume failed", error);
+        appendStatus(`Audio continue failed: ${error.message}`);
+      }
+    }
+
+    function stopActiveAudio(reason = "manual stop") {
+      console.log("[audio] stopActiveAudio", { reason, activeInputMode, hasAudioContext: !!audioContext });
+
+      stopTestNoiseIfRunning();
+      stopMicrophoneIfRunning();
+      stopFileIfRunning();
+      disconnectAnalyserFromDestination();
+
+      activeInputMode = null;
+      audioPaused = false;
+      updateStopButtonUI();
+      resetAnalysisState(reason);
+      console.log("[audio] analysis reset after stop", { reason });
+
+      logStatus(`Audio stopped (${reason}).`);
+    }
+
+
+    function resetAnalysisState(reason = "reset") {
+      console.log("[analysis] resetAnalysisState", { reason, activeInputMode });
+      previousFrameTimeSec = null;
+      loudnessUpdateAccumSec = 0;
+      lastAnalyserDebugLogTimeMs = 0;
+      lastExposureDebugLogTimeMs = 0;
+      gateFlashUntilMs = 0;
+      gateBlockRejectedNow = false;
+      supportShortHistory = [];
+      irritationShortHistory = [];
+      audioShortHistory = [];
+      fullShortHistory = [];
+      fullShortRawHistory = [];
+      fullLongExposureHistory = [];
+      kWeightedShortHistory = [];
+      kWeightedLongExposureHistory = [];
+      kAdaptiveContextLinear = null;
+      kEnvelopeDb = kEnvelopeFloorDb;
+      kEnvelopePeakDb = kEnvelopeFloorDb;
+      kEnvelopeHoldTimerSec = 0.0;
+      fullShortTermRawHistory = [];
+      kWeightedShortTermRawHistory = [];
+      kRealtimeMomentaryWindowHistory = [];
+      kRealtimeIntegratedBlockHistory = [];
+      kWeightedLraShortTermHistory = [];
+      lastLraSampleTimeSec = null;
+      levelPeakFastHistory = [];
+      levelRmsFastHistory = [];
+      levelScopeHistory = [];
+    }
+
+    function startDrawLoop(reason = "start draw loop") {
+      if (analysisPaused) {
+        console.log("[analysis] startDrawLoop skipped because analysis is paused", { reason });
+        return;
+      }
+      if (animationId !== null) {
+        console.log("[analysis] draw loop already running", { reason, animationId });
+        return;
+      }
+      console.log("[analysis] starting draw loop", { reason });
+      draw();
+    }
+
+    function stopDrawLoop(reason = "stop draw loop") {
+      if (animationId !== null) {
+        console.log("[analysis] stopping draw loop", { reason, animationId });
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      previousFrameTimeSec = null;
+    }
+
+    function buildPinkNoiseBuffer(context, durationSec = 2.0) {
+      const length = Math.max(1, Math.floor(context.sampleRate * durationSec));
+      const buffer = context.createBuffer(1, length, context.sampleRate);
+      const data = buffer.getChannelData(0);
+
+      let b0 = 0;
+      let b1 = 0;
+      let b2 = 0;
+      let b3 = 0;
+      let b4 = 0;
+      let b5 = 0;
+      let b6 = 0;
+
+      for (let i = 0; i < length; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        const pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+        b6 = white * 0.115926;
+        data[i] = pink * 0.11;
+      }
+
+      console.log("[testNoise] pink noise buffer built", {
+        durationSec,
+        sampleRate: context.sampleRate,
+        length
+      });
+
+      return buffer;
+    }
+
+    function updateTestNoiseLevel(isInitialStart = false) {
+      if (!testNoiseGainNode || !audioContext) return;
+      const targetGainDb = testInputGainDb;
+      const linearGain = gainDbToLinear(targetGainDb);
+      const now = audioContext.currentTime;
+
+      testNoiseGainNode.gain.cancelScheduledValues(now);
+      if (isInitialStart) {
+        testNoiseGainNode.gain.setValueAtTime(0.0001, now);
+        testNoiseGainNode.gain.exponentialRampToValueAtTime(linearGain, now + 0.15);
+      } else {
+        testNoiseGainNode.gain.setTargetAtTime(linearGain, now, 0.02);
+      }
+
+      console.log("[testNoise] input gain updated from slider", {
+        targetGainDb,
+        linearGain,
+        isInitialStart
+      });
+    }
+
+    function updateTestSineFrequency() {
+      if (!testSineOscillatorNode || !audioContext) return;
+      const now = audioContext.currentTime;
+      const targetFrequencyHz = testSineFrequencyHz;
+
+      testSineOscillatorNode.frequency.cancelScheduledValues(now);
+      testSineOscillatorNode.frequency.setTargetAtTime(targetFrequencyHz, now, 0.02);
+
+      console.log("[testSine] frequency updated from slider", {
+        targetFrequencyHz
+      });
+    }
+
+    function updateTestSineLevel(isInitialStart = false) {
+      if (!testSineGainNode || !audioContext) return;
+      const targetGainDb = testSineGainDb;
+      const linearGain = gainDbToLinear(targetGainDb);
+      const now = audioContext.currentTime;
+
+      testSineGainNode.gain.cancelScheduledValues(now);
+      if (isInitialStart) {
+        testSineGainNode.gain.setValueAtTime(0.0001, now);
+        testSineGainNode.gain.exponentialRampToValueAtTime(linearGain, now + 0.15);
+      } else {
+        testSineGainNode.gain.setTargetAtTime(linearGain, now, 0.02);
+      }
+
+      console.log("[testSine] gain updated from slider", {
+        targetGainDb,
+        linearGain,
+        isInitialStart
+      });
+    }
+
+    startBtn.addEventListener("click", async () => {
+      console.log("[startBtn] click", { activeInputMode, hasAudioContext: !!audioContext });
+      if (activeInputMode === "mic") {
+        logStatus("Microphone already running.");
+        console.log("[startBtn] microphone already active", { activeInputMode, audioContextState: audioContext ? audioContext.state : "none" });
+        return;
+      }
+
+      try {
+        logStatus(
+          [
+            "Chrome mic debug",
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`,
+            `protocol: ${location.protocol}`,
+            `userAgent: ${navigator.userAgent}`,
+            `navigator.mediaDevices exists: ${!!navigator.mediaDevices}`,
+            `getUserMedia exists: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`
+          ].join("\n")
+        );
+
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const permissionStatus = await navigator.permissions.query({ name: "microphone" });
+            appendStatus(`permission microphone state: ${permissionStatus.state}`);
+          } catch (permErr) {
+            appendStatus(`permissions.query failed: ${permErr.message}`);
+          }
+        }
+
+        stopActiveAudio("switch to microphone");
+        resetAnalysisState("before microphone start");
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        ensureAudioContext();
+        audioPaused = false;
+        updateStopButtonUI();
+        await resumeAudioContextIfNeeded("microphone start");
+        setupAnalyser();
+
+        micStream = stream;
+        source = audioContext.createMediaStreamSource(stream);
+        micGainNode = audioContext.createGain();
+
+        source.connect(micGainNode);
+        connectAnalysisOutputs(micGainNode);
+        activeInputMode = "mic";
+        refreshGainSliderUI();
+        updateControlActiveState();
+        updateMicInputGain(true);
+
+        console.log("[microphone] media stream source connected to analyser", {
+          audioContextState: audioContext.state,
+          activeInputMode,
+          fadeInSec: 0.15,
+          micInputGainDb
+        });
+
+        appendStatus(`audioContext.sampleRate: ${audioContext.sampleRate}`);
+        appendStatus(`analyser.fftSize: ${analyser.fftSize}`);
+        appendStatus(`analyser.frequencyBinCount: ${analyser.frequencyBinCount}`);
+
+        await appendAudioInputList(stream);
+        startDrawLoop("microphone start");
+      } catch (err) {
+        console.error("getUserMedia error:", err.name, err.message, err);
+        logStatus(
+          [
+            "Microphone start failed",
+            `err.name: ${err.name}`,
+            `err.message: ${err.message}`,
+            `isSecureContext: ${window.isSecureContext}`,
+            `origin: ${location.origin}`
+          ].join("\n")
+        );
+      }
+    });
+
+    testNoiseBtn.addEventListener("click", async () => {
+      console.log("[testNoiseBtn] click", { activeInputMode, hasAudioContext: !!audioContext });
+
+      if (activeInputMode === "test") {
+        console.log("[testNoiseBtn] test noise already active -> restarting");
+        stopActiveAudio("restart test noise");
+      } else if (activeInputMode === "mic" || activeInputMode === "file") {
+        console.log("[testNoiseBtn] switching from current input to test noise", { activeInputMode });
+        stopActiveAudio("switch to test noise");
+      }
+
+      try {
+        ensureAudioContext();
+        audioPaused = false;
+        updateStopButtonUI();
+        resetAnalysisState("before test noise start");
+        await resumeAudioContextIfNeeded("test noise start");
+        setupAnalyser();
+
+        testNoiseBufferSource = audioContext.createBufferSource();
+        testNoiseBufferSource.buffer = buildPinkNoiseBuffer(audioContext, 2.0);
+        testNoiseBufferSource.loop = true;
+
+        testNoiseHighpassNode = audioContext.createBiquadFilter();
+        testNoiseHighpassNode.type = "highpass";
+        testNoiseHighpassNode.frequency.value = 10;
+        testNoiseHighpassNode.Q.value = 0.707;
+
+        testNoiseGainNode = audioContext.createGain();
+        testSineOscillatorNode = audioContext.createOscillator();
+        testSineOscillatorNode.type = "sine";
+        testSineOscillatorNode.frequency.value = testSineFrequencyHz;
+        testSineGainNode = audioContext.createGain();
+
+        testNoiseBufferSource.connect(testNoiseHighpassNode);
+        testNoiseHighpassNode.connect(testNoiseGainNode);
+
+        // EN: Test noise and test sine are separate calibration sources.
+        // EN: Test noise gain controls only pink noise; test sine gain controls only the sine tone.
+        // EN: Both sources are summed by connecting them independently to the same analyser/output path.
+        testSineOscillatorNode.connect(testSineGainNode);
+
+        connectAnalysisOutputs(testNoiseGainNode);
+        connectAnalysisOutputs(testSineGainNode);
+        analyser.connect(audioContext.destination);
+
+        testNoiseBufferSource.onended = () => {
+          console.log("[testNoise] buffer source ended");
+        };
+
+        const startAtTime = audioContext.currentTime + 0.02;
+        console.log("[testNoise] scheduling source start", {
+          nowTime: audioContext.currentTime,
+          startAtTime
+        });
+        testNoiseBufferSource.start(startAtTime);
+        testSineOscillatorNode.start(startAtTime);
+        activeInputMode = "test";
+        refreshGainSliderUI();
+        updateControlActiveState();
+        updateTestNoiseLevel(true);
+        updateTestSineFrequency();
+        updateTestSineLevel(true);
+
+        console.log("[testNoise] source started", {
+          audioContextState: audioContext.state,
+          highpassHz: testNoiseHighpassNode.frequency.value,
+          sineFrequencyHz: testSineFrequencyHz,
+          sineGainDb: testSineGainDb,
+          activeInputMode
+        });
+
+        logStatus(
+          [
+            "Test noise started",
+            `audioContext.sampleRate: ${audioContext.sampleRate}`,
+            `analyser.fftSize: ${analyser.fftSize}`,
+            `test high-pass: ${testNoiseHighpassNode.frequency.value} Hz`,
+            `test noise gain: ${testInputGainDb.toFixed(1)} dB`,
+            `test sine direct gain: ${formatSineFrequency(testSineFrequencyHz)} @ ${testSineGainDb.toFixed(1)} dB`,
+          ].join("\n")
+        );
+
+        startDrawLoop("test noise start");
+      } catch (err) {
+        console.error("[testNoise] start failed", err);
+        logStatus(
+          [
+            "Test noise start failed",
+            `err.name: ${err.name || "Error"}`,
+            `err.message: ${err.message || String(err)}`
+          ].join("\n")
+        );
+      }
+    });
+
+
+    // ==============================
+    // AUDIO FILE INPUT + WHOLE-FILE OFFLINE ANALYSIS
+    // ==============================
+    // EN: File playback still uses the existing realtime analyser path.
+    // EN: Offline analysis builds precomputed arrays for file-position-aware display, K integrated estimate, LRA-style dynamics, and 10 s segment statistics.
+    fileRestartBtn.addEventListener("click", () => {
+      if (!fileAudioBuffer) return;
+      console.log("[fileUI] restart file");
+      resetAnalysisState("restart audio file");
+      startFilePlayback(0);
+      startDrawLoop("restart audio file");
+    });
+
+    fileSeekSliderEl.addEventListener("input", () => {
+      if (!fileAudioBuffer) return;
+      fileSeekIsDragging = true;
+      const ratio = Number(fileSeekSliderEl.value) / 1000;
+      const previewSec = clamp(ratio * fileAudioBuffer.duration, 0, fileAudioBuffer.duration);
+      fileTimeLabelEl.textContent = `${formatTimeSec(previewSec)} / ${formatTimeSec(fileAudioBuffer.duration)}`;
+    });
+
+    fileSeekSliderEl.addEventListener("change", () => {
+      if (!fileAudioBuffer) return;
+      const ratio = Number(fileSeekSliderEl.value) / 1000;
+      const newTimeSec = clamp(ratio * fileAudioBuffer.duration, 0, fileAudioBuffer.duration);
+      fileSeekIsDragging = false;
+
+      // EN: AudioBufferSourceNode cannot seek after start(), so seeking creates a new source at the requested offset.
+      console.log("[fileUI] seek file", { newTimeSec, durationSec: fileAudioBuffer.duration });
+      resetAnalysisState("seek audio file");
+      startFilePlayback(newTimeSec);
+      startDrawLoop("seek audio file");
+    });
+
+    fileScopeFollowBtn.addEventListener("click", () => {
+      if (!fileAudioBuffer) return;
+      fileScopeFollowPlayback = !fileScopeFollowPlayback;
+      console.log("[fileUI] scope follow toggle", { fileScopeFollowPlayback });
+      updateFilePlaybackUI();
+    });
+
+    fileScopeSliderEl.addEventListener("input", () => {
+      if (!fileAudioBuffer) return;
+      fileScopeSliderIsDragging = true;
+      fileScopeFollowPlayback = false;
+      const maxScopeStartSec = Math.max(0, fileAudioBuffer.duration - levelScopeWindowSec);
+      const ratio = Number(fileScopeSliderEl.value) / 1000;
+      fileScopeViewStartSec = clamp(ratio * maxScopeStartSec, 0, maxScopeStartSec);
+      const scopeEndSec = Math.min(fileAudioBuffer.duration, fileScopeViewStartSec + levelScopeWindowSec);
+      fileScopeLabelEl.textContent = `${formatTimeSec(fileScopeViewStartSec)}–${formatTimeSec(scopeEndSec)}`;
+      fileScopeFollowBtn.textContent = "Follow scope: OFF";
+    });
+
+    fileScopeSliderEl.addEventListener("change", () => {
+      if (!fileAudioBuffer) return;
+      fileScopeSliderIsDragging = false;
+      const maxScopeStartSec = Math.max(0, fileAudioBuffer.duration - levelScopeWindowSec);
+      const ratio = Number(fileScopeSliderEl.value) / 1000;
+      fileScopeViewStartSec = clamp(ratio * maxScopeStartSec, 0, maxScopeStartSec);
+      fileScopeFollowPlayback = false;
+      console.log("[fileUI] scope window seek", { fileScopeViewStartSec });
+      updateFilePlaybackUI();
+    });
+
+    audioFileInputEl.addEventListener("click", () => {
+      // EN: Stop the currently audible source as soon as the user opens the file picker.
+      // EN: Otherwise the previous test generator or file keeps playing while the new file is being selected/decoded.
+      if (activeInputMode) {
+        stopActiveAudio("prepare audio file selection");
+      }
+    });
+
+    audioFileInputEl.addEventListener("change", async () => {
+      const file = audioFileInputEl.files && audioFileInputEl.files[0];
+      if (!file) return;
+
+      console.log("[file] selected", {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        activeInputMode
+      });
+
+      try {
+        stopActiveAudio("switch to audio file");
+        resetAnalysisState("before audio file start");
+
+        ensureAudioContext();
+        audioPaused = false;
+        updateStopButtonUI();
+        await resumeAudioContextIfNeeded("audio file start");
+        setupAnalyser();
+
+        const arrayBuffer = await file.arrayBuffer();
+
+        // EN: Slice the ArrayBuffer because decodeAudioData may detach/consume it in some browsers.
+        fileAudioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+
+        fileScopeViewStartSec = 0;
+        fileScopeFollowPlayback = true;
+        fileScopeSliderIsDragging = false;
+
+        startFilePlayback(0);
+        startDrawLoop("audio file playback before offline analysis");
+
+        logStatus(
+          [
+            "Audio file decoded and playback started. Running offline analysis...",
+            `file: ${file.name}`,
+            `duration: ${fileAudioBuffer.duration.toFixed(2)} s`,
+            `sampleRate: ${fileAudioBuffer.sampleRate}`,
+            `channels: ${fileAudioBuffer.numberOfChannels}`
+          ].join("\n")
+        );
+
+        await analyzeAudioFileOffline(fileAudioBuffer, file.name);
+
+        logStatus(
+          [
+            "Audio file started",
+            `file: ${file.name}`,
+            `duration: ${fileAudioBuffer.duration.toFixed(2)} s`,
+            `sampleRate: ${fileAudioBuffer.sampleRate}`,
+            `channels: ${fileAudioBuffer.numberOfChannels}`,
+            `K integrated est: ${formatNullableDb(fileAnalysis.kIntegratedEstimateDb)}`,
+            `gate threshold: ${formatNullableDb(fileAnalysis.gateThresholdDb)}`,
+            `LRA est: ${formatNullableDb(fileAnalysis.lraEstimateDb)}`,
+            `LRA gate: ${formatNullableDb(fileAnalysis.lraGateThresholdDb)}`,
+            `LRA p10/p95: ${formatNullableDb(fileAnalysis.lraP10Db)} / ${formatNullableDb(fileAnalysis.lraP95Db)}`,
+            `LRA accepted: ${fileAnalysis.lraAcceptedCount} / ${fileAnalysis.lraTotalCount}`,
+            `accepted blocks: ${fileAnalysis.relativeAcceptedCount} / ${fileAnalysis.totalBlockCount}`,
+            formatSegmentSummaryLine("loudest", fileAnalysis.loudestSegmentIndex),
+            formatSegmentSummaryLine("quietest", fileAnalysis.quietestSegmentIndex),
+            `segment range (10 s max-min): ${formatNullableLu(fileAnalysis.segmentRangeLu)}`,
+            "Offline values are estimates and use the current app K-path, not full BS.1770 compliance."
+          ].join("\n")
+        );
+
+        startDrawLoop("audio file start");
+      } catch (error) {
+        console.error("[file] start failed", error);
+        logStatus(
+          [
+            "Audio file start failed",
+            `err.name: ${error.name || "Error"}`,
+            `err.message: ${error.message || String(error)}`
+          ].join("\n")
+        );
+      }
+    });
+
+    function startFilePlayback(offsetSec = 0) {
+      if (!fileAudioBuffer || !audioContext) return;
+
+      stopFileIfRunning();
+
+      fileBufferSource = audioContext.createBufferSource();
+      fileBufferSource.buffer = fileAudioBuffer;
+
+      fileGainNode = audioContext.createGain();
+      fileGainNode.gain.value = 1.0;
+
+      fileBufferSource.connect(fileGainNode);
+      connectAnalysisOutputs(fileGainNode);
+
+      // EN: File playback is audible and is also routed to the existing analyser output path.
+      analyser.connect(audioContext.destination);
+
+      filePlaybackOffsetSec = clamp(offsetSec, 0, fileAudioBuffer.duration);
+      fileStartedAtContextTime = audioContext.currentTime - filePlaybackOffsetSec;
+
+      fileBufferSource.onended = () => {
+        console.log("[file] playback ended");
+      };
+
+      fileBufferSource.start(audioContext.currentTime + 0.02, filePlaybackOffsetSec);
+      activeInputMode = "file";
+      refreshGainSliderUI();
+      updateControlActiveState();
+      updateFilePlaybackUI();
+
+      console.log("[file] playback started", {
+        offsetSec: filePlaybackOffsetSec,
+        durationSec: fileAudioBuffer.duration,
+        audioContextState: audioContext.state
+      });
+    }
+
+    stopBtn.addEventListener("click", async () => {
+      console.log("[stopBtn] click", { activeInputMode, hasAudioContext: !!audioContext, audioPaused });
+      await toggleAudioPause();
+    });
+
+    pauseBtn.addEventListener("click", () => {
+      analysisPaused = !analysisPaused;
+      pauseBtn.textContent = analysisPaused ? "Continue analysis" : "Pause analysis";
+      console.log("[pauseBtn] toggle", { analysisPaused, activeInputMode, hasAudioContext: !!audioContext });
+
+      if (analysisPaused) {
+        stopDrawLoop("pause analysis button");
+        appendStatus("Analysis paused.");
+      } else {
+        previousFrameTimeSec = null;
+        startDrawLoop("continue analysis button");
+        appendStatus("Analysis continued.");
+      }
+    });
+
+    // ==============================
+    // OFFLINE FILE ANALYSIS
+    // ==============================
+    async function analyzeAudioFileOffline(audioBuffer, fileName = "") {
+      console.log("[offline] analysis start", {
+        fileName,
+        durationSec: audioBuffer.duration,
+        sampleRate: audioBuffer.sampleRate,
+        channels: audioBuffer.numberOfChannels
+      });
+
+      resetFileAnalysis();
+      fileAnalysis.running = true;
+      fileAnalysis.fileName = fileName;
+
+      const offlineContext = new OfflineAudioContext(
+        audioBuffer.numberOfChannels,
+        audioBuffer.length,
+        audioBuffer.sampleRate
+      );
+
+      const sourceNode = offlineContext.createBufferSource();
+      sourceNode.buffer = audioBuffer;
+
+      // EN: Keep these parameters matched with setupKWeightedAnalyser().
+      const kPre = offlineContext.createBiquadFilter();
+      kPre.type = "highshelf";
+      kPre.frequency.value = 1500;
+      kPre.gain.value = 4.0;
+
+      const kHp = offlineContext.createBiquadFilter();
+      kHp.type = "highpass";
+      kHp.frequency.value = 60;
+      kHp.Q.value = 0.5;
+
+      sourceNode.connect(kPre);
+      kPre.connect(kHp);
+      kHp.connect(offlineContext.destination);
+
+      sourceNode.start(0);
+      const kRenderedBuffer = await offlineContext.startRendering();
+
+      buildFileAnalysisArrays(audioBuffer, kRenderedBuffer, fileName);
+      fileAnalysis.running = false;
+
+      console.log("[offline] analysis done", {
+        fileName,
+        totalBlockCount: fileAnalysis.totalBlockCount,
+        relativeAcceptedCount: fileAnalysis.relativeAcceptedCount,
+        kIntegratedEstimateDb: fileAnalysis.kIntegratedEstimateDb,
+        gateThresholdDb: fileAnalysis.gateThresholdDb,
+        lraEstimateDb: fileAnalysis.lraEstimateDb,
+        lraGateThresholdDb: fileAnalysis.lraGateThresholdDb,
+        segmentCount: fileAnalysis.segments.length,
+        segmentRangeLu: fileAnalysis.segmentRangeLu
+      });
+    }
+
+    function resetFileAnalysis() {
+      fileAnalysis.ready = false;
+      fileAnalysis.running = false;
+      fileAnalysis.fileName = "";
+      fileAnalysis.sampleRate = 0;
+      fileAnalysis.durationSec = 0;
+      fileAnalysis.times = [];
+      fileAnalysis.rms04 = [];
+      fileAnalysis.rms3 = [];
+      fileAnalysis.k04 = [];
+      fileAnalysis.k3 = [];
+      fileAnalysis.k30 = [];
+      fileAnalysis.kAdaptive = [];
+      fileAnalysis.kAdaptiveLookAhead = [];
+      fileAnalysis.peak04 = [];
+      fileAnalysis.kIntegratedEstimateDb = null;
+      fileAnalysis.gateThresholdDb = null;
+      fileAnalysis.lraEstimateDb = null;
+      fileAnalysis.lraGateThresholdDb = null;
+      fileAnalysis.lraP10Db = null;
+      fileAnalysis.lraP95Db = null;
+      fileAnalysis.lraAcceptedCount = 0;
+      fileAnalysis.lraTotalCount = 0;
+      fileAnalysis.absoluteAcceptedCount = 0;
+      fileAnalysis.relativeAcceptedCount = 0;
+      fileAnalysis.totalBlockCount = 0;
+      fileAnalysis.segments = [];
+      fileAnalysis.loudestSegmentIndex = -1;
+      fileAnalysis.quietestSegmentIndex = -1;
+      fileAnalysis.segmentRangeLu = null;
+    }
+
+    function buildFileAnalysisArrays(rawBuffer, kBuffer, fileName) {
+      const sampleRate = rawBuffer.sampleRate;
+      const durationSec = rawBuffer.duration;
+      const stepSec = fileAnalysis.blockStepSec;
+      const block04Sec = fileAnalysis.blockSizeSec;
+      const totalSteps = Math.max(1, Math.floor(durationSec / stepSec));
+
+      const rawMono = mixToMonoArray(rawBuffer);
+      const kMono = mixToMonoArray(kBuffer);
+      const k04LinearBlocks = [];
+
+      for (let i = 0; i < totalSteps; i++) {
+        const t = i * stepSec;
+
+        const rms04 = meanSquareWindow(rawMono, sampleRate, t, block04Sec);
+        const rms3 = meanSquareWindow(rawMono, sampleRate, t, shortTermWindowSec);
+        const k04 = meanSquareWindow(kMono, sampleRate, t, block04Sec);
+        const k3 = meanSquareWindow(kMono, sampleRate, t, shortTermWindowSec);
+        const k30 = meanSquareWindow(kMono, sampleRate, t, longTermExposureWindowSec);
+        const peak04 = peakSquareWindow(rawMono, sampleRate, t, block04Sec);
+
+        fileAnalysis.times.push(t);
+        fileAnalysis.rms04.push(rms04);
+        fileAnalysis.rms3.push(rms3);
+        fileAnalysis.k04.push(k04);
+        fileAnalysis.k3.push(k3);
+        fileAnalysis.k30.push(k30);
+        fileAnalysis.peak04.push(peak04);
+        k04LinearBlocks.push(k04);
+      }
+
+      // K ENVELOPE FOLLOWER + LOOK-AHEAD
+      // EN: Offline envelope mirrors the realtime model using precomputed K 0.4 s blocks.
+      // EN: Look-ahead is true offline look-ahead: control[t] = envelope[t + lookAhead].
+      fileAnalysis.kAdaptive = buildKEnvelopeArrayFromK04(fileAnalysis.k04, stepSec);
+      fileAnalysis.kAdaptiveLookAhead = buildLookAheadArray(fileAnalysis.kAdaptive, kEnvelopeLookAheadSteps);
+
+      const gateStats = calculateIntegratedKEstimateFromBlocks(k04LinearBlocks);
+      const lraStats = calculateOfflineLraEstimateFromK3Array(fileAnalysis.times, fileAnalysis.k3);
+      const segmentStats = calculateOfflineSegmentStats(
+        fileAnalysis.times,
+        fileAnalysis.k04,
+        fileAnalysis.k30,
+        fileAnalysis.peak04,
+        durationSec,
+        fileAnalysis.segmentSec,
+        gateStats.integratedDb
+      );
+
+      fileAnalysis.ready = true;
+      fileAnalysis.fileName = fileName;
+      fileAnalysis.sampleRate = sampleRate;
+      fileAnalysis.durationSec = durationSec;
+      fileAnalysis.kIntegratedEstimateDb = gateStats.integratedDb;
+      fileAnalysis.gateThresholdDb = gateStats.relativeThresholdDb;
+      fileAnalysis.lraEstimateDb = lraStats ? lraStats.lraDb : null;
+      fileAnalysis.lraGateThresholdDb = lraStats ? lraStats.relativeThresholdDb : null;
+      fileAnalysis.lraP10Db = lraStats ? lraStats.p10Db : null;
+      fileAnalysis.lraP95Db = lraStats ? lraStats.p95Db : null;
+      fileAnalysis.lraAcceptedCount = lraStats ? lraStats.relativeGatedCount : 0;
+      fileAnalysis.lraTotalCount = lraStats ? lraStats.totalCount : 0;
+      fileAnalysis.absoluteAcceptedCount = gateStats.absoluteAcceptedCount;
+      fileAnalysis.relativeAcceptedCount = gateStats.relativeAcceptedCount;
+      fileAnalysis.totalBlockCount = gateStats.totalBlockCount;
+      fileAnalysis.segments = segmentStats.segments;
+      fileAnalysis.loudestSegmentIndex = segmentStats.loudestSegmentIndex;
+      fileAnalysis.quietestSegmentIndex = segmentStats.quietestSegmentIndex;
+      fileAnalysis.segmentRangeLu = segmentStats.segmentRangeLu;
+    }
+
+    function calculateOfflineSegmentStats(times, k04Array, k30Array, peak04Array, durationSec, segmentSec, wholeFileIntegratedDb) {
+      const segments = [];
+      const segmentCount = Math.max(1, Math.ceil(durationSec / segmentSec));
+
+      for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+        const startSec = segmentIndex * segmentSec;
+        const endSec = Math.min(durationSec, startSec + segmentSec);
+        const k04Blocks = [];
+        const k30Values = [];
+        let peakMaxLinear = 0;
+
+        for (let i = 0; i < times.length; i++) {
+          const t = times[i];
+          if (t < startSec || t >= endSec) continue;
+
+          const k04 = k04Array[i];
+          const k30 = k30Array[i];
+          const peak04 = peak04Array[i];
+
+          if (isFinite(k04) && k04 > 0) k04Blocks.push(k04);
+          if (isFinite(k30) && k30 > 0) k30Values.push(k30);
+          if (isFinite(peak04) && peak04 > peakMaxLinear) peakMaxLinear = peak04;
+        }
+
+        const integratedStats = calculateIntegratedKEstimateFromBlocks(k04Blocks);
+        const k30MeanLinear = averageLinearArray(k30Values);
+        const segmentIntegratedDb = integratedStats.integratedDb;
+        const k30MeanDb = Number.isFinite(k30MeanLinear) ? linearEnergyToDb(k30MeanLinear) : null;
+        const comparisonDb = Number.isFinite(segmentIntegratedDb) ? segmentIntegratedDb : k30MeanDb;
+        const deltaFromIntegratedDb =
+          Number.isFinite(comparisonDb) && Number.isFinite(wholeFileIntegratedDb)
+            ? comparisonDb - wholeFileIntegratedDb
+            : null;
+
+        segments.push({
+          index: segmentIndex,
+          startSec,
+          endSec,
+          durationSec: endSec - startSec,
+          kIntegratedEstimateDb: segmentIntegratedDb,
+          k30MeanDb,
+          comparisonDb,
+          deltaFromIntegratedDb,
+          peak04MaxDb: peakMaxLinear > 0 ? linearEnergyToDb(peakMaxLinear) : null,
+          acceptedBlocks: integratedStats.relativeAcceptedCount,
+          totalBlocks: integratedStats.totalBlockCount,
+          gateThresholdDb: integratedStats.relativeThresholdDb
+        });
+      }
+
+      let loudestSegmentIndex = -1;
+      let quietestSegmentIndex = -1;
+      let loudestValue = -Infinity;
+      let quietestValue = Infinity;
+
+      for (const segment of segments) {
+        if (!Number.isFinite(segment.comparisonDb)) continue;
+        if (segment.comparisonDb > loudestValue) {
+          loudestValue = segment.comparisonDb;
+          loudestSegmentIndex = segment.index;
+        }
+        if (segment.comparisonDb < quietestValue) {
+          quietestValue = segment.comparisonDb;
+          quietestSegmentIndex = segment.index;
+        }
+      }
+
+      const segmentRangeLu =
+        Number.isFinite(loudestValue) && Number.isFinite(quietestValue)
+          ? loudestValue - quietestValue
+          : null;
+
+      return {
+        segments,
+        loudestSegmentIndex,
+        quietestSegmentIndex,
+        segmentRangeLu
+      };
+    }
+
+    function mixToMonoArray(buffer) {
+      const length = buffer.length;
+      const channels = buffer.numberOfChannels;
+      const mono = new Float32Array(length);
+
+      for (let channelIndex = 0; channelIndex < channels; channelIndex++) {
+        const data = buffer.getChannelData(channelIndex);
+        for (let i = 0; i < length; i++) {
+          mono[i] += data[i] / channels;
+        }
+      }
+
+      return mono;
+    }
+
+    function meanSquareWindow(data, sampleRate, centerTimeSec, windowSec) {
+      const halfWindowSec = windowSec * 0.5;
+      const startIndex = Math.max(0, Math.floor((centerTimeSec - halfWindowSec) * sampleRate));
+      const endIndex = Math.min(data.length, Math.floor((centerTimeSec + halfWindowSec) * sampleRate));
+
+      if (endIndex <= startIndex) return dbToLinearEnergy(-100);
+
+      let sumSquares = 0;
+      for (let i = startIndex; i < endIndex; i++) {
+        const value = data[i];
+        sumSquares += value * value;
+      }
+
+      return sumSquares / (endIndex - startIndex);
+    }
+
+    function peakSquareWindow(data, sampleRate, centerTimeSec, windowSec) {
+      const halfWindowSec = windowSec * 0.5;
+      const startIndex = Math.max(0, Math.floor((centerTimeSec - halfWindowSec) * sampleRate));
+      const endIndex = Math.min(data.length, Math.floor((centerTimeSec + halfWindowSec) * sampleRate));
+
+      let maxAbs = 0;
+      for (let i = startIndex; i < endIndex; i++) {
+        const absValue = Math.abs(data[i]);
+        if (absValue > maxAbs) maxAbs = absValue;
+      }
+
+      return maxAbs * maxAbs;
+    }
+
+    function calculateIntegratedKEstimateFromBlocks(kLinearBlocks) {
+      const validBlocks = kLinearBlocks.filter(value => isFinite(value) && value > 0);
+      const totalBlockCount = validBlocks.length;
+      const absoluteThresholdLinear = dbToLinearEnergy(-70);
+      const absoluteAccepted = validBlocks.filter(value => value >= absoluteThresholdLinear);
+
+      if (absoluteAccepted.length === 0) {
+        return {
+          integratedDb: null,
+          relativeThresholdDb: null,
+          absoluteAcceptedCount: 0,
+          relativeAcceptedCount: 0,
+          totalBlockCount
+        };
+      }
+
+      const absoluteMeanLinear = averageLinearArray(absoluteAccepted);
+      const absoluteMeanDb = linearEnergyToDb(absoluteMeanLinear);
+      const relativeThresholdDb = absoluteMeanDb - 10;
+      const relativeThresholdLinear = dbToLinearEnergy(relativeThresholdDb);
+      const relativeAccepted = absoluteAccepted.filter(value => value >= relativeThresholdLinear);
+
+      if (relativeAccepted.length === 0) {
+        return {
+          integratedDb: null,
+          relativeThresholdDb,
+          absoluteAcceptedCount: absoluteAccepted.length,
+          relativeAcceptedCount: 0,
+          totalBlockCount
+        };
+      }
+
+      return {
+        // EN: Estimate only. This follows the current app dB scale, not certified BS.1770 LUFS.
+        integratedDb: linearEnergyToDb(averageLinearArray(relativeAccepted)),
+        relativeThresholdDb,
+        absoluteAcceptedCount: absoluteAccepted.length,
+        relativeAcceptedCount: relativeAccepted.length,
+        totalBlockCount
+      };
+    }
+
+    function calculateRunningIntegratedKEstimateFromBlocks(blocks, minBlockCount = realtimeIntegratedMinBlocks) {
+      const energies = blocks
+        .map(block => block.energy)
+        .filter(value => isFinite(value) && value > 0);
+
+      const totalBlockCount = energies.length;
+      const absoluteThresholdLinear = dbToLinearEnergy(-70);
+      const absoluteAccepted = energies.filter(value => value >= absoluteThresholdLinear);
+
+      if (totalBlockCount < minBlockCount || absoluteAccepted.length < minBlockCount) {
+        return {
+          status: "warming up",
+          integratedDb: null,
+          relativeThresholdDb: null,
+          absoluteAcceptedCount: absoluteAccepted.length,
+          relativeAcceptedCount: 0,
+          totalBlockCount,
+          minBlockCount
+        };
+      }
+
+      const absoluteMeanLinear = averageLinearArray(absoluteAccepted);
+      const absoluteMeanDb = linearEnergyToDb(absoluteMeanLinear);
+      const relativeThresholdDb = absoluteMeanDb - 10;
+      const relativeThresholdLinear = dbToLinearEnergy(relativeThresholdDb);
+      const relativeAccepted = absoluteAccepted.filter(value => value >= relativeThresholdLinear);
+
+      if (relativeAccepted.length < minBlockCount) {
+        return {
+          status: "warming up",
+          integratedDb: null,
+          relativeThresholdDb,
+          absoluteAcceptedCount: absoluteAccepted.length,
+          relativeAcceptedCount: relativeAccepted.length,
+          totalBlockCount,
+          minBlockCount
+        };
+      }
+
+      return {
+        status: "ready",
+        integratedDb: linearEnergyToDb(averageLinearArray(relativeAccepted)),
+        relativeThresholdDb,
+        absoluteAcceptedCount: absoluteAccepted.length,
+        relativeAcceptedCount: relativeAccepted.length,
+        totalBlockCount,
+        minBlockCount
+      };
+    }
+
+    function averageLinearArray(values) {
+      if (!values.length) return null;
+      let sum = 0;
+      for (const value of values) sum += value;
+      return sum / values.length;
+    }
+
+    function calculateOfflineLraEstimateFromK3Array(times, k3LinearArray) {
+      const history = [];
+      let lastSampleTimeSec = null;
+
+      for (let i = 0; i < times.length; i++) {
+        const t = times[i];
+        const linearValue = k3LinearArray[i];
+        if (!isFinite(t) || !isFinite(linearValue) || linearValue <= 0) continue;
+
+        // EN: Offline LRA uses one 3 s short-term K value per second.
+        // EN: Do not use the denser 0.1 s file scope array directly for LRA.
+        if (lastSampleTimeSec === null || t - lastSampleTimeSec >= 1.0) {
+          lastSampleTimeSec = t;
+          history.push({
+            t,
+            value: linearEnergyToDb(linearValue)
+          });
+        }
+      }
+
+      return getStandardLikeLraStatsFromShortTermHistory(history);
+    }
+
+    function getNearestFileAnalysisIndex(timeSec) {
+      if (!fileAnalysis.ready || fileAnalysis.times.length === 0) return -1;
+      return clamp(Math.round(timeSec / fileAnalysis.blockStepSec), 0, fileAnalysis.times.length - 1);
+    }
+
+    function buildOfflineScopeWindow(startSec, windowSec = levelScopeWindowSec, endSecOverride = null) {
+      if (!fileAnalysis.ready) return [];
+
+      // EN: startSec may be negative in follow mode.
+      // EN: This preserves empty space on the left until the playback cursor has filled the 20 s scope.
+      const visibleStartSec = startSec;
+      const visibleEndSec = Number.isFinite(endSecOverride)
+        ? endSecOverride
+        : visibleStartSec + windowSec;
+
+      const dataStartSec = Math.max(0, visibleStartSec);
+      const dataEndSec = Math.min(fileAnalysis.durationSec, visibleEndSec);
+      const result = [];
+
+      for (let i = 0; i < fileAnalysis.times.length; i++) {
+        const t = fileAnalysis.times[i];
+        if (t < dataStartSec || t > dataEndSec) continue;
+
+        result.push({
+          t,
+          peak04Db: linearEnergyToDb(fileAnalysis.peak04[i]),
+          rms04Db: linearEnergyToDb(fileAnalysis.rms04[i]),
+          rms3Db: linearEnergyToDb(fileAnalysis.rms3[i]),
+          kWeightedMomentaryScopeDb: linearEnergyToDb(fileAnalysis.k04[i]),
+          kWeightedShortScopeDb: linearEnergyToDb(fileAnalysis.k3[i]),
+          kWeightedLongScopeDb: linearEnergyToDb(fileAnalysis.k30[i]),
+          kAdaptiveScopeDb: linearEnergyToDb(fileAnalysis.kAdaptive[i]),
+          kAdaptiveLookAheadScopeDb: linearEnergyToDb(fileAnalysis.kAdaptiveLookAhead[i])
+        });
+      }
+
+      return result;
+    }
+
+    function formatNullableDb(value) {
+      return Number.isFinite(value) ? (value.toFixed(1) + " dB") : "--";
+    }
+
+    function formatNullableLu(value) {
+      return Number.isFinite(value) ? (value.toFixed(1) + " LU") : "--";
+    }
+
+    function getCurrentFileSegmentIndex(timeSec) {
+      if (!fileAnalysis.ready || !fileAnalysis.segments.length) return -1;
+      return clamp(Math.floor(timeSec / fileAnalysis.segmentSec), 0, fileAnalysis.segments.length - 1);
+    }
+
+    function formatSegmentSummaryLine(label, segmentIndex) {
+      const segment = fileAnalysis.segments[segmentIndex];
+      if (!segment) return `${label} segment: --`;
+
+      const deltaText = Number.isFinite(segment.deltaFromIntegratedDb)
+        ? ` (${segment.deltaFromIntegratedDb >= 0 ? "+" : ""}${segment.deltaFromIntegratedDb.toFixed(1)} LU)`
+        : "";
+
+      const valueLabel = Number.isFinite(segment.kIntegratedEstimateDb) ? "K-I seg" : "K10 mean";
+      const valueDb = Number.isFinite(segment.comparisonDb) ? segment.comparisonDb.toFixed(1) : "--";
+
+      return `${label} segment: ${formatTimeSec(segment.startSec)}–${formatTimeSec(segment.endSec)} ${valueLabel} ${valueDb} dB${deltaText}`;
+    }
+
+    // ==============================
+    // UTILITY FUNCTIONS
+    // ==============================
+    function updateSliderVisual(slider) {
+      const min = Number(slider.min);
+      const max = Number(slider.max);
+      const val = Number(slider.value);
+      const pct = ((val - min) / (max - min)) * 100;
+      slider.style.background = `linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) ${pct}%, var(--slider-track) ${pct}%, var(--slider-track) 100%)`;
+    }
+
+    function dbToLinearEnergy(dbValue) {
+      return Math.pow(10, dbValue / 10);
+    }
+
+    function linearEnergyToDb(linearValue) {
+      if (!isFinite(linearValue) || linearValue <= 0) {
+        return displayMinDb;
+      }
+      return 10 * Math.log10(linearValue);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function logStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function appendStatus(text) {
+      statusEl.textContent += `\n${text}`;
+    }
+
+    async function appendAudioInputList(stream) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(device => device.kind === "audioinput");
+
+        appendStatus("Audio inputs:");
+        audioInputs.forEach((device, index) => {
+          const label = device.label || "(label hidden until permission granted)";
+          appendStatus(`  ${index}: ${label} | ${device.deviceId}`);
+        });
+
+        const tracks = stream.getAudioTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          appendStatus(`active track.label: ${track.label || "(hidden until permission granted)"}`);
+          appendStatus(`active track.readyState: ${track.readyState}`);
+        }
+      } catch (error) {
+        appendStatus(`enumerateDevices failed: ${error.message}`);
+      }
+    }
+
+    function calculateRMS(buffer) {
+      let sumSquares = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const value = buffer[i];
+        sumSquares += value * value;
+      }
+      return Math.sqrt(sumSquares / buffer.length);
+    }
+
+    function calculateMaxAbs(buffer) {
+      let maxAbs = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const absValue = Math.abs(buffer[i]);
+        if (absValue > maxAbs) maxAbs = absValue;
+      }
+      return maxAbs;
+    }
+
+    function maxHistoryLinear(history) {
+      if (history.length === 0) return null;
+      let maxValue = 0;
+      for (const item of history) {
+        if (isFinite(item.value) && item.value > maxValue) maxValue = item.value;
+      }
+      return maxValue;
+    }
+
+    // ==============================
+    // FFT & THIRD-OCTAVE ENERGY
+    // ==============================
+    function getFftLinearEnergySum(freqDbArray) {
+      let sumLinear = 0;
+      let count = 0;
+
+      for (let i = 0; i < freqDbArray.length; i++) {
+        const db = freqDbArray[i];
+        if (isFinite(db)) {
+          sumLinear += dbToLinearEnergy(db);
+          count++;
+        }
+      }
+
+      return { sumLinear, count };
+    }
+
+    function getBandLinearEnergy(freqDbArray, lowFreq, highFreq, sampleRate, fftEnergyScale) {
+      const nyquist = sampleRate / 2;
+      const fftBinCount = freqDbArray.length;
+      const binWidthHz = nyquist / fftBinCount;
+
+      let sumLinearRaw = 0;
+      let weightedBinCount = 0;
+
+      for (let i = 0; i < fftBinCount; i++) {
+        const db = freqDbArray[i];
+        if (!isFinite(db)) continue;
+
+        // EN: Treat each FFT value as energy located in a finite-width frequency bin.
+        // EN: Fractional overlap prevents edge bands, especially 20 Hz, from stealing too much energy.
+        const binLow = Math.max(0, (i - 0.5) * binWidthHz);
+        const binHigh = Math.min(nyquist, (i + 0.5) * binWidthHz);
+        const overlapLow = Math.max(lowFreq, binLow);
+        const overlapHigh = Math.min(highFreq, binHigh);
+        const overlapHz = Math.max(0, overlapHigh - overlapLow);
+
+        if (overlapHz <= 0) continue;
+
+        const overlapFraction = overlapHz / Math.max(1e-12, binHigh - binLow);
+        sumLinearRaw += dbToLinearEnergy(db) * overlapFraction;
+        weightedBinCount += overlapFraction;
+      }
+
+      if (weightedBinCount <= 0) {
+        return {
+          linearSum: 0,
+          binCount: 0
+        };
+      }
+
+      // EN: Web Audio analyser FFT magnitudes include internal window/analyser scaling.
+      // EN: fftEnergyScale normalizes total FFT-bin energy to time-domain RMS².
+      return {
+        linearSum: sumLinearRaw * fftEnergyScale,
+        binCount: weightedBinCount
+      };
+    }
+
+    function getThirdOctaveBandValues(freqDbArray, sampleRate, referenceTimeLinearEnergy) {
+      const nyquist = sampleRate / 2;
+      const bandValues = [];
+
+      const fftTotal = getFftLinearEnergySum(freqDbArray);
+      const fftEnergyScale =
+        isFinite(referenceTimeLinearEnergy) && referenceTimeLinearEnergy > 0 && fftTotal.sumLinear > 0
+          ? referenceTimeLinearEnergy / fftTotal.sumLinear
+          : 1;
+
+      for (const centerFreq of thirdOctaveCenters) {
+        const low = centerFreq / Math.pow(2, 1 / 6);
+        const high = centerFreq * Math.pow(2, 1 / 6);
+        if (low >= nyquist) continue;
+
+        const bandEnergy = getBandLinearEnergy(freqDbArray, low, Math.min(high, nyquist), sampleRate, fftEnergyScale);
+
+        // EN: Use the same physical band-energy sum for both display and derived meters.
+        // EN: Do not use per-bin mean here; mean would break octave-band energy interpretation.
+        const dbRaw = linearEnergyToDb(bandEnergy.linearSum);
+
+        bandValues.push({
+          centerFreq,
+          low,
+          high,
+          binCount: bandEnergy.binCount,
+          dbRaw,
+          dbCal: dbRaw,
+          linear: bandEnergy.linearSum,
+          linearRaw: bandEnergy.linearSum
+        });
+      }
+
+      return bandValues;
+    }
+
+    function smoothLinearValue(previousValue, instantValue, dtSec, timeConstantSec) {
+      if (previousValue === null || !isFinite(previousValue)) {
+        return instantValue;
+      }
+      const alpha = 1 - Math.exp(-dtSec / Math.max(0.001, timeConstantSec));
+      return previousValue + alpha * (instantValue - previousValue);
+    }
+
+    function smoothStep01(value) {
+      const x = clamp(value, 0, 1);
+      return x * x * (3 - 2 * x);
+    }
+
+    function updateKEnvelopeFollowerDb(previousDb, inputDb, dtSec, state) {
+      const safeInputDb = Math.max(kEnvelopeFloorDb, isFinite(inputDb) ? inputDb : kEnvelopeFloorDb);
+      let nextDb = Math.max(kEnvelopeFloorDb, isFinite(previousDb) ? previousDb : safeInputDb);
+
+      if (!isFinite(state.peakDb)) {
+        state.peakDb = nextDb;
+      }
+
+      if (safeInputDb > nextDb) {
+        // EN: Fast rise: follow increasing K energy quickly, but without a hard step.
+        const attackAlpha = 1 - Math.exp(-dtSec / Math.max(0.001, kEnvelopeAttackTauSec));
+        nextDb += attackAlpha * (safeInputDb - nextDb);
+        state.peakDb = Math.max(state.peakDb, nextDb, safeInputDb);
+        state.holdTimerSec = kEnvelopeHoldSec;
+      } else if (state.holdTimerSec > 0) {
+        // EN: Perceptual adaptation hold: keep the recent context for a short time before release.
+        state.holdTimerSec = Math.max(0, state.holdTimerSec - dtSec);
+      } else {
+        // EN: 60 dB adaptation range: release cannot fall below the recent peak minus this range.
+        // EN: The release is S-shaped: soft start, near-linear middle section, soft landing near the lower limit.
+        const releaseFloorDb = Math.max(kEnvelopeFloorDb, state.peakDb - kEnvelopeDynamicRangeDb, safeInputDb);
+        const droppedFromPeakDb = Math.max(0, state.peakDb - nextDb);
+        const remainingToFloorDb = Math.max(0, nextDb - releaseFloorDb);
+        const startEase = 0.35 + 0.65 * smoothStep01(droppedFromPeakDb / kEnvelopeStartEaseDb);
+        const endEase = smoothStep01(remainingToFloorDb / kEnvelopeEndEaseDb);
+        const releaseRateDbPerSec = kEnvelopeReleaseDbPerSec * startEase * endEase;
+        nextDb = Math.max(releaseFloorDb, nextDb - releaseRateDbPerSec * dtSec);
+
+        // EN: If the signal has been quiet long enough to reach the 60 dB floor, allow the peak anchor to drift down.
+        if (Math.abs(nextDb - releaseFloorDb) < 0.001 && safeInputDb < releaseFloorDb) {
+          state.peakDb = Math.max(safeInputDb + kEnvelopeDynamicRangeDb, state.peakDb - releaseRateDbPerSec * dtSec);
+        }
+      }
+
+      return Math.max(kEnvelopeFloorDb, nextDb);
+    }
+
+    function buildKEnvelopeArrayFromK04(k04Array, stepSec) {
+      const result = [];
+      const state = { holdTimerSec: 0.0 };
+      let envDb = kEnvelopeFloorDb;
+      state.peakDb = kEnvelopeFloorDb;
+
+      for (const linearValue of k04Array) {
+        const inputDb = linearEnergyToDb(linearValue);
+        envDb = updateKEnvelopeFollowerDb(envDb, inputDb, stepSec, state);
+        result.push(dbToLinearEnergy(envDb));
+      }
+
+      return result;
+    }
+
+    function buildLookAheadArray(linearArray, lookAheadSteps) {
+      const result = [];
+      if (!Array.isArray(linearArray) || linearArray.length === 0) return result;
+
+      for (let i = 0; i < linearArray.length; i++) {
+        const sourceIndex = Math.min(linearArray.length - 1, i + lookAheadSteps);
+        result.push(linearArray[sourceIndex]);
+      }
+
+      return result;
+    }
+
+    function appendHistorySample(history, timeSec, value) {
+      history.push({ t: timeSec, value });
+    }
+
+    // EN: Remove samples older than the active history window.
+    function trimLinearHistoryBySeconds(history, windowSec, nowSec) {
+      const minTime = nowSec - windowSec;
+      while (history.length > 0 && history[0].t < minTime) {
+        history.shift();
+      }
+    }
+
+    function averageHistoryLinear(history) {
+      if (history.length === 0) return null;
+      let sum = 0;
+      for (const item of history) {
+        sum += item.value;
+      }
+      return sum / history.length;
+    }
+
+    function averageDbValues(dbValues) {
+      if (!dbValues.length) return null;
+      let sumLinear = 0;
+      for (const value of dbValues) {
+        sumLinear += dbToLinearEnergy(value);
+      }
+      return linearEnergyToDb(sumLinear / dbValues.length);
+    }
+
+    function percentileSorted(sortedValues, percentile) {
+      if (!sortedValues.length) return null;
+      const index = (sortedValues.length - 1) * percentile;
+      const lowerIndex = Math.floor(index);
+      const upperIndex = Math.ceil(index);
+      if (lowerIndex === upperIndex) return sortedValues[lowerIndex];
+      const fraction = index - lowerIndex;
+      return sortedValues[lowerIndex] + fraction * (sortedValues[upperIndex] - sortedValues[lowerIndex]);
+    }
+
+    // ==============================
+    // HISTOGRAM & GATING
+    // ==============================
+    // EN: Basic ungated percentile statistics for quick A/B comparison against the gated version.
+    function getUngatedStatsFromHistory(history) {
+      if (!history || history.length < 10) return null;
+
+      const values = history.map(item => item.value).filter(value => isFinite(value));
+      const absoluteGated = values.filter(value => value >= -70);
+      if (absoluteGated.length < 5) return null;
+
+      const sorted = [...absoluteGated].sort((a, b) => a - b);
+      const p10 = percentileSorted(sorted, 0.10);
+      const p95 = percentileSorted(sorted, 0.95);
+      if (!isFinite(p10) || !isFinite(p95)) return null;
+
+      return {
+        absoluteThresholdDb: -70,
+        relativeThresholdDb: null,
+        p10Db: p10,
+        p95Db: p95,
+        lraDb: p95 - p10,
+        values: absoluteGated
+      };
+    }
+
+    // EN: Derive true two-stage gated loudness statistics from recent short-term history.
+    // EN: Stage 1 = absolute gate at -70 LUFS-style dB.
+    // EN: Stage 2 = relative gate at 10 LU below the average of the absolute-gated set.
+    function getLraStatsFromShortTermHistory(history) {
+      if (!history || history.length < 20) return null;
+
+      const values = history.map(item => item.value).filter(value => isFinite(value));
+      const absoluteGated = values.filter(value => value >= -70);
+      if (absoluteGated.length < 10) return null;
+
+      const meanAbsGateDb = averageDbValues(absoluteGated);
+      if (!isFinite(meanAbsGateDb)) return null;
+
+      const relativeThresholdDb = meanAbsGateDb - 10;
+      const relativeGated = absoluteGated.filter(value => value >= relativeThresholdDb);
+      if (relativeGated.length < 10) return null;
+
+      const sorted = [...relativeGated].sort((a, b) => a - b);
+      const p10 = percentileSorted(sorted, 0.10);
+      const p95 = percentileSorted(sorted, 0.95);
+      if (!isFinite(p10) || !isFinite(p95)) return null;
+
+      return {
+        absoluteThresholdDb: -70,
+        relativeThresholdDb,
+        meanAbsoluteGatedDb: meanAbsGateDb,
+        p10Db: p10,
+        p95Db: p95,
+        lraDb: p95 - p10,
+        values: relativeGated,
+        absoluteGatedCount: absoluteGated.length,
+        relativeGatedCount: relativeGated.length,
+        totalCount: values.length
+      };
+    }
+
+    function getStandardLikeLraStatsFromShortTermHistory(history) {
+      if (!history || history.length < 10) return null;
+
+      const values = history
+        .map(item => item.value)
+        .filter(value => isFinite(value));
+
+      const absoluteGated = values.filter(value => value >= -70);
+      if (absoluteGated.length < 5) return null;
+
+      const meanAbsGateDb = averageDbValues(absoluteGated);
+      if (!isFinite(meanAbsGateDb)) return null;
+
+      // EN: LRA-style relative gate is 20 LU below the absolute-gated mean.
+      // EN: This differs from integrated loudness gating, which uses -10 LU.
+      const relativeThresholdDb = meanAbsGateDb - 20;
+      const relativeGated = absoluteGated.filter(value => value >= relativeThresholdDb);
+      if (relativeGated.length < 5) return null;
+
+      const sorted = [...relativeGated].sort((a, b) => a - b);
+      const p10 = percentileSorted(sorted, 0.10);
+      const p95 = percentileSorted(sorted, 0.95);
+      if (!isFinite(p10) || !isFinite(p95)) return null;
+
+      return {
+        absoluteThresholdDb: -70,
+        relativeThresholdDb,
+        meanAbsoluteGatedDb: meanAbsGateDb,
+        p10Db: p10,
+        p95Db: p95,
+        lraDb: p95 - p10,
+        values: relativeGated,
+        absoluteGatedCount: absoluteGated.length,
+        relativeGatedCount: relativeGated.length,
+        totalCount: values.length
+      };
+    }
+
+    // EN: Build a loudness histogram from recent Full short-term values to visualize dynamics distribution.
+    function buildHistogramFromValues(values, minDb, maxDb, binSizeDb) {
+      const binCount = Math.ceil((maxDb - minDb) / binSizeDb);
+      const bins = new Array(binCount).fill(0);
+
+      for (const value of values) {
+        if (!isFinite(value)) continue;
+        const clamped = Math.min(maxDb - 1e-9, Math.max(minDb, value));
+        const index = Math.floor((clamped - minDb) / binSizeDb);
+        bins[index] += 1;
+      }
+
+      return bins;
+    }
+    // ==============================
+    // MAIN ANALYSIS + RENDER LOOP
+    // ==============================
+    function draw() {
+      animationId = requestAnimationFrame(draw);
+
+      const nowSec = performance.now() * 0.001;
+      let dtSec = 1 / 60;
+      if (previousFrameTimeSec !== null) {
+        dtSec = clamp(nowSec - previousFrameTimeSec, 0.001, 0.25);
+      }
+      previousFrameTimeSec = nowSec;
+
+      if (audioPaused) {
+        // EN: When audio is paused, keep the analysis loop running but feed synthetic silence.
+        // EN: This makes the 3 s and 10 s indicators decay visibly without changing input sources.
+        timeData.fill(0);
+        freqData.fill(-100);
+        if (kTimeData) kTimeData.fill(0);
+      } else {
+        analyser.getFloatTimeDomainData(timeData);
+        analyser.getFloatFrequencyData(freqData);
+        if (kAnalyser && kTimeData) {
+          kAnalyser.getFloatTimeDomainData(kTimeData);
+        }
+      }
+
+      const nowMs = performance.now();
+      if (DEBUG_LOGS && nowMs - lastAnalyserDebugLogTimeMs > 1000) {
+        lastAnalyserDebugLogTimeMs = nowMs;
+        console.log("[analyser] data snapshot", {
+          activeInputMode,
+          firstTimeSample: Number(timeData[0].toFixed(6)),
+          firstFreqSample: Number(freqData[0].toFixed(2)),
+          audioContextState: audioContext ? audioContext.state : "none"
+        });
+      }
+
+      const rms = calculateRMS(timeData);
+      const rmsDbFs = rms > 0 ? 20 * Math.log10(rms) : -100;
+      const samplePeak = calculateMaxAbs(timeData);
+      const samplePeakLinear = samplePeak > 0 ? samplePeak * samplePeak : dbToLinearEnergy(-100);
+
+      // EN: K-weighted energy is measured from the parallel filtered time-domain path.
+      // EN: Energy is stored as RMS² and converted to dB only for display/debug.
+      const kWeightedRms = kTimeData ? calculateRMS(kTimeData) : 0;
+      const kWeightedLinear = kWeightedRms > 0 ? kWeightedRms * kWeightedRms : dbToLinearEnergy(-100);
+
+      const timeDomainLinear = rms > 0 ? rms * rms : dbToLinearEnergy(-100);
+      const bandValues = getThirdOctaveBandValues(freqData, audioContext.sampleRate, timeDomainLinear);
+
+      const supportBands = bandValues.filter(band => band.centerFreq >= 20 && band.centerFreq <= 63);
+      const supportLinear = supportBands.reduce((sum, band) => sum + band.linear, 0);
+
+      const irritationBands = bandValues.filter(band => band.centerFreq === 80 || band.centerFreq === 100);
+      const irritationLinear = irritationBands.reduce((sum, band) => sum + band.linear, 0) || dbToLinearEnergy(-100);
+
+      const audioBands = bandValues.filter(band => band.centerFreq >= 125);
+      const audioLinear = audioBands.reduce((sum, band) => sum + band.linear, 0);
+
+      const fullLinear = bandValues.reduce((sum, band) => sum + band.linear, 0) || dbToLinearEnergy(rmsDbFs);
+      const fullLinearRaw = bandValues.reduce((sum, band) => sum + band.linearRaw, 0) || timeDomainLinear;
+
+      // EN: Update loudness histories at 10 Hz so the short-term meter uses a true sliding window.
+      loudnessUpdateAccumSec += dtSec;
+      let didAppendShortTermSample = false;
+      while (loudnessUpdateAccumSec >= loudnessUpdateIntervalSec) {
+        loudnessUpdateAccumSec -= loudnessUpdateIntervalSec;
+        didAppendShortTermSample = true;
+
+        appendHistorySample(supportShortHistory, nowSec, supportLinear);
+        appendHistorySample(irritationShortHistory, nowSec, irritationLinear);
+        appendHistorySample(audioShortHistory, nowSec, audioLinear);
+        appendHistorySample(fullShortHistory, nowSec, fullLinear);
+        appendHistorySample(fullShortRawHistory, nowSec, fullLinearRaw);
+
+        // EN: Store the same Full-band analysis-path energy for the 10 s exposure reference.
+        // EN: This uses the same filters, band summing, and gain staging as the short-term Full meter.
+        appendHistorySample(fullLongExposureHistory, nowSec, fullLinear);
+        appendHistorySample(kWeightedShortHistory, nowSec, kWeightedLinear);
+        appendHistorySample(kWeightedLongExposureHistory, nowSec, kWeightedLinear);
+
+        appendHistorySample(levelPeakFastHistory, nowSec, samplePeakLinear);
+        appendHistorySample(levelRmsFastHistory, nowSec, timeDomainLinear);
+
+        trimLinearHistoryBySeconds(supportShortHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(irritationShortHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(audioShortHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(fullShortHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(fullShortRawHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(fullLongExposureHistory, longTermExposureWindowSec, nowSec);
+        trimLinearHistoryBySeconds(kWeightedShortHistory, shortTermWindowSec, nowSec);
+        trimLinearHistoryBySeconds(kWeightedLongExposureHistory, longTermExposureWindowSec, nowSec);
+        trimLinearHistoryBySeconds(levelPeakFastHistory, fastLevelWindowSec, nowSec);
+        trimLinearHistoryBySeconds(levelRmsFastHistory, fastLevelWindowSec, nowSec);
+        trimLinearHistoryBySeconds(levelScopeHistory, levelScopeWindowSec, nowSec);
+      }
+
+      const supportShortLinear = averageHistoryLinear(supportShortHistory) ?? supportLinear;
+      const irritationShortLinear = averageHistoryLinear(irritationShortHistory) ?? irritationLinear;
+      const audioShortLinear = averageHistoryLinear(audioShortHistory) ?? audioLinear;
+      const fullShortLinear = averageHistoryLinear(fullShortHistory) ?? fullLinear;
+      const fullShortLinearRaw = averageHistoryLinear(fullShortRawHistory) ?? fullLinearRaw;
+
+      const peak04Linear = maxHistoryLinear(levelPeakFastHistory) ?? samplePeakLinear;
+      const rms04Linear = averageHistoryLinear(levelRmsFastHistory) ?? timeDomainLinear;
+      const rms3Linear = fullShortLinearRaw;
+      const peak04Db = linearEnergyToDb(peak04Linear);
+      const rms04Db = linearEnergyToDb(rms04Linear);
+      const rms3Db = linearEnergyToDb(rms3Linear);
+
+      // EN: 10 s exposure is calculated from linear energy and converted to dB only for display/debug.
+      // EN: Delta compares current perceived loudness context: positive = build-up, negative = release.
+      const fullLongExposureLinear = averageHistoryLinear(fullLongExposureHistory) ?? fullLinear;
+      const kWeightedShortLinear = averageHistoryLinear(kWeightedShortHistory) ?? kWeightedLinear;
+      const kWeightedLongExposureLinear = averageHistoryLinear(kWeightedLongExposureHistory) ?? kWeightedLinear;
+      const kWeightedShortScopeDb = linearEnergyToDb(kWeightedShortLinear);
+      const kWeightedMomentaryScopeLinear = averageHistoryLinear(kRealtimeMomentaryWindowHistory) ?? kWeightedLinear;
+      const kWeightedMomentaryScopeDb = linearEnergyToDb(kWeightedMomentaryScopeLinear);
+      const kWeightedLongScopeDb = linearEnergyToDb(kWeightedLongExposureLinear);
+      const kAdaptiveScopeDb = linearEnergyToDb(kAdaptiveContextLinear ?? kWeightedShortLinear);
+      const kAdaptiveLookAheadDb = kAdaptiveScopeDb;
+
+      if (didAppendShortTermSample) {
+        // EN: Store display-ready dB values for the scrolling 20 s scope.
+        // EN: K 10 s is a rolling K-weighted exposure estimate, not full BS.1770 integrated LUFS.
+        levelScopeHistory.push({
+          t: nowSec,
+          peak04Db,
+          rms04Db,
+          rms3Db,
+          kWeightedMomentaryScopeDb,
+          kWeightedShortScopeDb,
+          kWeightedLongScopeDb,
+          kAdaptiveScopeDb,
+          kAdaptiveLookAheadScopeDb: kAdaptiveLookAheadDb
+        });
+        trimLinearHistoryBySeconds(levelScopeHistory, levelScopeWindowSec, nowSec);
+      }
+
+      const supportDb = linearEnergyToDb(supportLinear);
+      const supportShortDb = linearEnergyToDb(supportShortLinear);
+
+      const irritationDb = linearEnergyToDb(irritationLinear);
+      const irritationShortDb = linearEnergyToDb(irritationShortLinear);
+
+      const audioDb = linearEnergyToDb(audioLinear);
+      const audioShortDb = linearEnergyToDb(audioShortLinear);
+
+      const fullDb = linearEnergyToDb(fullLinear);
+      const fullShortDb = linearEnergyToDb(fullShortLinear);
+      const fullLongExposureDb = linearEnergyToDb(fullLongExposureLinear);
+      const fullExposureDeltaDb = fullShortDb - fullLongExposureDb;
+      const kWeightedDb = linearEnergyToDb(kWeightedLinear);
+      const kWeightedShortDb = linearEnergyToDb(kWeightedShortLinear);
+      const kWeightedLongExposureDb = linearEnergyToDb(kWeightedLongExposureLinear);
+      const kWeightedExposureDeltaDb = kWeightedShortDb - kWeightedLongExposureDb;
+      const kAdaptiveDb = linearEnergyToDb(kAdaptiveContextLinear ?? kWeightedShortLinear);
+      const kAdaptiveDeltaDb = kWeightedShortDb - kAdaptiveDb;
+      const kMinusFullShortDb = kWeightedShortDb - fullShortDb;
+      const kMinusAudioShortDb = kWeightedShortDb - audioShortDb;
+
+      if (DEBUG_LOGS && didAppendShortTermSample && nowMs - lastExposureDebugLogTimeMs > 1000) {
+        lastExposureDebugLogTimeMs = nowMs;
+        console.log("[exposure] short vs long", {
+          shortTerm3sDb: Number(fullShortDb.toFixed(2)),
+          longTerm10sDb: Number(fullLongExposureDb.toFixed(2)),
+          deltaDb: Number(fullExposureDeltaDb.toFixed(2)),
+          kShortTerm3sDb: Number(kWeightedShortDb.toFixed(2)),
+          kLongTerm10sDb: Number(kWeightedLongExposureDb.toFixed(2)),
+          kDeltaDb: Number(kWeightedExposureDeltaDb.toFixed(2)),
+          kMinusFullShortDb: Number(kMinusFullShortDb.toFixed(2)),
+          kMinusAudioShortDb: Number(kMinusAudioShortDb.toFixed(2)),
+          longWindowSamples: fullLongExposureHistory.length
+        });
+      }
+
+      if (didAppendShortTermSample && isFinite(fullShortLinearRaw) && fullShortLinearRaw > 0) {
+        fullShortTermRawHistory.push({ t: nowSec, value: fullShortLinearRaw });
+        trimLinearHistoryBySeconds(fullShortTermRawHistory, maxHistogramHistorySec, nowSec);
+      }
+
+      if (didAppendShortTermSample && isFinite(kWeightedShortLinear) && kWeightedShortLinear > 0) {
+        kWeightedShortTermRawHistory.push({ t: nowSec, value: kWeightedShortLinear });
+        trimLinearHistoryBySeconds(kWeightedShortTermRawHistory, maxHistogramHistorySec, nowSec);
+      }
+
+      if (didAppendShortTermSample && isFinite(kWeightedLinear) && kWeightedLinear > 0) {
+        // EN: Build a 400 ms K-weighted momentary block from raw K energy samples.
+        // EN: Store the block for a running integrated loudness estimate using -70 / -10 gating.
+        kRealtimeMomentaryWindowHistory.push({ t: nowSec, value: kWeightedLinear });
+        trimLinearHistoryBySeconds(kRealtimeMomentaryWindowHistory, realtimeIntegratedBlockWindowSec, nowSec);
+
+        const k04RealtimeLinear = averageHistoryLinear(kRealtimeMomentaryWindowHistory);
+        if (isFinite(k04RealtimeLinear) && k04RealtimeLinear > 0) {
+          kRealtimeIntegratedBlockHistory.push({
+            t: nowSec,
+            energy: k04RealtimeLinear,
+            db: linearEnergyToDb(k04RealtimeLinear)
+          });
+          trimLinearHistoryBySeconds(kRealtimeIntegratedBlockHistory, maxHistogramHistorySec, nowSec);
+
+          // K ENVELOPE FOLLOWER + LOOK-AHEAD
+          // EN: Realtime envelope follows 400 ms K blocks. True future look-ahead is only available offline.
+          kEnvelopeDb = updateKEnvelopeFollowerDb(
+            kEnvelopeDb,
+            linearEnergyToDb(k04RealtimeLinear),
+            loudnessUpdateIntervalSec,
+            {
+              get holdTimerSec() { return kEnvelopeHoldTimerSec; },
+              set holdTimerSec(value) { kEnvelopeHoldTimerSec = value; },
+              get peakDb() { return kEnvelopePeakDb; },
+              set peakDb(value) { kEnvelopePeakDb = value; }
+            }
+          );
+          kAdaptiveContextLinear = dbToLinearEnergy(kEnvelopeDb);
+        }
+      }
+
+      if (
+        didAppendShortTermSample &&
+        isFinite(kWeightedShortLinear) &&
+        kWeightedShortLinear > 0 &&
+        (lastLraSampleTimeSec === null || nowSec - lastLraSampleTimeSec >= 1.0)
+      ) {
+        lastLraSampleTimeSec = nowSec;
+
+        kWeightedLraShortTermHistory.push({
+          t: nowSec,
+          value: linearEnergyToDb(kWeightedShortLinear)
+        });
+
+        trimLinearHistoryBySeconds(kWeightedLraShortTermHistory, maxHistogramHistorySec, nowSec);
+      }
+
+      const calibratedKShortTermHistory = kWeightedShortTermRawHistory
+        .map(item => ({ t: item.t, value: linearEnergyToDb(item.value) }))
+        .filter(item => isFinite(item.value));
+
+      const kUngatedStats = getUngatedStatsFromHistory(calibratedKShortTermHistory);
+      const kGatedStats = getLraStatsFromShortTermHistory(calibratedKShortTermHistory);
+      const kLraStats = getStandardLikeLraStatsFromShortTermHistory(kWeightedLraShortTermHistory);
+      const kRunningIntegratedStats = calculateRunningIntegratedKEstimateFromBlocks(kRealtimeIntegratedBlockHistory);
+
+      // EN: Histogram still uses the denser 10 Hz history.
+      // EN: LRA display uses the 1 Hz / 3 s standard-like estimate.
+      const activeHistogramStats = histogramGateEnabled ? (kLraStats || kGatedStats) : kUngatedStats;
+
+      // EN: Evaluate gating only for the newest short-term block.
+      // EN: This answers: "would this block be rejected right now?"
+      if (didAppendShortTermSample && histogramGateEnabled && kGatedStats) {
+        const currentDb = linearEnergyToDb(kWeightedShortLinear);
+        const absGate = kGatedStats.absoluteThresholdDb;
+        const relGate = kGatedStats.relativeThresholdDb;
+
+        const rejected =
+          (isFinite(absGate) && currentDb < absGate) ||
+          (isFinite(relGate) && currentDb < relGate);
+
+        gateBlockRejectedNow = rejected;
+
+        if (rejected) {
+          // EN: Trigger a short visual flash for one rejected analysis block.
+          gateFlashUntilMs = nowMs + 150;
+        }
+      } else if (didAppendShortTermSample) {
+        gateBlockRejectedNow = false;
+      }
+
+      let histogramSourceValues;
+      if (histogramGateEnabled && kGatedStats && kGatedStats.values.length > 0) {
+        histogramSourceValues = kGatedStats.values;
+      } else {
+        histogramSourceValues = calibratedKShortTermHistory.map(item => item.value);
+      }
+
+      const histogramBins = buildHistogramFromValues(histogramSourceValues, histogramMinDb, histogramMaxDb, histogramBinSizeDb);
+
+      // EN: Do not show persistent "gate active" state.
+      // EN: Only momentary current-block rejection events are visualized.
+      const histogramGateActive = false;
+
+      let renderLevelScopeHistory = levelScopeHistory;
+      let renderPeak04Db = peak04Db;
+      let renderRms04Db = rms04Db;
+      let renderRms3Db = rms3Db;
+      let renderK04Db = kWeightedMomentaryScopeDb;
+      let renderK3Db = kWeightedShortScopeDb;
+      let renderK30Db = kWeightedLongScopeDb;
+      let renderKAdaptiveDb = kAdaptiveScopeDb;
+      let renderKAdaptiveLookAheadDb = kAdaptiveLookAheadDb;
+      let renderScopeStartSec = null;
+
+      // EN: During file playback, the scope reads precomputed offline arrays.
+      // EN: Follow mode keeps the visible 20 s window attached to playback; manual mode scrolls independently.
+      if (activeInputMode === "file" && fileAnalysis.ready) {
+        const fileCursorSec = getFilePlaybackTimeSec();
+        const fileIndex = getNearestFileAnalysisIndex(fileCursorSec);
+        const maxScopeStartSec = Math.max(0, fileAnalysis.durationSec - levelScopeWindowSec);
+
+        let renderScopeEndSec = fileScopeViewStartSec + levelScopeWindowSec;
+
+        if (fileScopeFollowPlayback) {
+          // EN: Match realtime startup behavior: right edge = cursor, left side remains empty before 20 s has elapsed.
+          fileScopeViewStartSec = fileCursorSec - levelScopeWindowSec;
+          renderScopeEndSec = fileCursorSec;
+        } else {
+          fileScopeViewStartSec = clamp(fileScopeViewStartSec, 0, maxScopeStartSec);
+          renderScopeEndSec = fileScopeViewStartSec + levelScopeWindowSec;
+        }
+
+        renderScopeStartSec = fileScopeViewStartSec;
+        renderLevelScopeHistory = buildOfflineScopeWindow(fileScopeViewStartSec, levelScopeWindowSec, renderScopeEndSec);
+
+        if (fileIndex >= 0) {
+          renderPeak04Db = linearEnergyToDb(fileAnalysis.peak04[fileIndex]);
+          renderRms04Db = linearEnergyToDb(fileAnalysis.rms04[fileIndex]);
+          renderRms3Db = linearEnergyToDb(fileAnalysis.rms3[fileIndex]);
+          renderK04Db = linearEnergyToDb(fileAnalysis.k04[fileIndex]);
+          renderK3Db = linearEnergyToDb(fileAnalysis.k3[fileIndex]);
+          renderK30Db = linearEnergyToDb(fileAnalysis.k30[fileIndex]);
+          renderKAdaptiveDb = linearEnergyToDb(fileAnalysis.kAdaptive[fileIndex]);
+          renderKAdaptiveLookAheadDb = linearEnergyToDb(fileAnalysis.kAdaptiveLookAhead[fileIndex]);
+        }
+      }
+
+      renderCanvas(bandValues, {
+        supportDb,
+        supportShortDb,
+        irritationDb,
+        irritationShortDb,
+        audioDb,
+        audioShortDb,
+        fullDb,
+        fullShortDb,
+        fullLongExposureDb,
+        fullExposureDeltaDb,
+        kWeightedDb,
+        kWeightedShortDb,
+        kWeightedLongExposureDb,
+        kWeightedExposureDeltaDb,
+        kAdaptiveDb,
+        kAdaptiveDeltaDb,
+        kAdaptiveLookAheadDb,
+        kMinusFullShortDb,
+        kMinusAudioShortDb,
+        fullLraDb: activeHistogramStats ? activeHistogramStats.lraDb : null,
+        fullP10Db: activeHistogramStats ? activeHistogramStats.p10Db : null,
+        fullP95Db: activeHistogramStats ? activeHistogramStats.p95Db : null,
+        fullRelativeGateDb: histogramGateEnabled && activeHistogramStats ? activeHistogramStats.relativeThresholdDb : null,
+        kRunningIntegratedDb: kRunningIntegratedStats.integratedDb,
+        kRunningIntegratedGateDb: kRunningIntegratedStats.relativeThresholdDb,
+        kRunningIntegratedStatus: kRunningIntegratedStats.status,
+        kRunningIntegratedAcceptedCount: kRunningIntegratedStats.relativeAcceptedCount,
+        kRunningIntegratedTotalCount: kRunningIntegratedStats.totalBlockCount,
+        kRunningIntegratedMinBlocks: kRunningIntegratedStats.minBlockCount,
+        histogramBins,
+        histogramMinDb,
+        histogramMaxDb,
+        histogramBinSizeDb,
+        histogramGateOn: histogramGateEnabled,
+        histogramGateActive,
+        histogramGateFlash: nowMs < gateFlashUntilMs,
+        histogramGateBlockRejectedNow: gateBlockRejectedNow,
+        histogramAbsoluteGateDb: histogramGateEnabled && activeHistogramStats ? activeHistogramStats.absoluteThresholdDb : null,
+        histogramRelativeGateDb: histogramGateEnabled && activeHistogramStats ? activeHistogramStats.relativeThresholdDb : null,
+        levelScopeHistory: renderLevelScopeHistory,
+        levelScopeWindowSec,
+        scopeStartSec: renderScopeStartSec,
+        peak04Db: renderPeak04Db,
+        rms04Db: renderRms04Db,
+        rms3Db: renderRms3Db,
+        kWeightedMomentaryScopeDb: renderK04Db,
+        kWeightedShortScopeDb: renderK3Db,
+        kWeightedLongScopeDb: renderK30Db,
+        kAdaptiveScopeDb: renderKAdaptiveDb,
+        kAdaptiveLookAheadScopeDb: renderKAdaptiveLookAheadDb,
+        rmsDbFs
+      });
+
+      updateFilePlaybackUI();
+
+      if (activeInputMode === "file" && fileAnalysis.ready && nowMs - lastFileStatusUpdateMs > 500) {
+        lastFileStatusUpdateMs = nowMs;
+        const fileCursorSec = getFilePlaybackTimeSec();
+        logStatus(
+          [
+            "FILE STATUS",
+            `source: ${fileAnalysis.fileName}`,
+            `playback: ${formatTimeSec(fileCursorSec)} / ${formatTimeSec(fileAnalysis.durationSec)}`,
+            `scope view: ${fileScopeFollowPlayback ? "follow playback" : "manual scroll"} ${formatTimeSec(Math.max(0, fileScopeViewStartSec))}–${formatTimeSec(fileScopeFollowPlayback ? fileCursorSec : Math.min(fileAnalysis.durationSec, fileScopeViewStartSec + levelScopeWindowSec))}`,
+            "",
+            "PROGRAM LOUDNESS",
+            `K integrated est: ${formatNullableDb(fileAnalysis.kIntegratedEstimateDb)}`,
+            `integrated gate: ${formatNullableDb(fileAnalysis.gateThresholdDb)} (-70 / -10)`,
+            `integrated accepted: ${fileAnalysis.relativeAcceptedCount} / ${fileAnalysis.totalBlockCount}`,
+            "",
+            "PROGRAM DYNAMICS",
+            `LRA est (3 s): ${formatNullableDb(fileAnalysis.lraEstimateDb)}`,
+            `LRA gate: ${formatNullableDb(fileAnalysis.lraGateThresholdDb)} (-70 / -20)`,
+            `LRA p10/p95: ${formatNullableDb(fileAnalysis.lraP10Db)} / ${formatNullableDb(fileAnalysis.lraP95Db)}`,
+            `LRA accepted: ${fileAnalysis.lraAcceptedCount} / ${fileAnalysis.lraTotalCount}`,
+            `segment range (10 s max-min): ${formatNullableLu(fileAnalysis.segmentRangeLu)}`,
+            fileAnalysis.ready ? `K adapt: ${formatNullableDb(fileAnalysis.kAdaptive[getNearestFileAnalysisIndex(fileCursorSec)] ? linearEnergyToDb(fileAnalysis.kAdaptive[getNearestFileAnalysisIndex(fileCursorSec)]) : null)}` : "K adapt: --",
+            fileAnalysis.ready ? `K adapt LA: ${formatNullableDb(fileAnalysis.kAdaptiveLookAhead[getNearestFileAnalysisIndex(fileCursorSec)] ? linearEnergyToDb(fileAnalysis.kAdaptiveLookAhead[getNearestFileAnalysisIndex(fileCursorSec)]) : null)} (${kEnvelopeLookAheadSec.toFixed(2)} s)` : "K adapt LA: --",
+            "",
+            "SEGMENT DETAILS (10 S)",
+            formatSegmentSummaryLine("current", getCurrentFileSegmentIndex(fileCursorSec)),
+            formatSegmentSummaryLine("loudest", fileAnalysis.loudestSegmentIndex),
+            formatSegmentSummaryLine("quietest", fileAnalysis.quietestSegmentIndex),
+            "",
+            "NOTES",
+            "Estimates use the current app K-path; this is not full BS.1770 compliance."
+          ].join("\n")
+        );
+      } else if ((activeInputMode === "mic" || activeInputMode === "test") && nowMs - lastRealtimeStatusUpdateMs > 1000) {
+        lastRealtimeStatusUpdateMs = nowMs;
+        logStatus(
+          [
+            "REALTIME STATUS",
+            `source: ${activeInputMode}`,
+            "",
+            "PROGRAM LOUDNESS",
+            kRunningIntegratedStats.status === "ready"
+              ? `K integrated running est: ${formatNullableDb(kRunningIntegratedStats.integratedDb)}`
+              : `K integrated running est: warming up (${kRunningIntegratedStats.totalBlockCount}/${kRunningIntegratedStats.minBlockCount})`,
+            `integrated gate: ${formatNullableDb(kRunningIntegratedStats.relativeThresholdDb)} (-70 / -10)`,
+            `integrated accepted: ${kRunningIntegratedStats.relativeAcceptedCount} / ${kRunningIntegratedStats.totalBlockCount}`,
+            "",
+            "PROGRAM DYNAMICS",
+            activeHistogramStats ? `LRA est (3 s): ${formatNullableLu(activeHistogramStats.lraDb)}` : "LRA est (3 s): --",
+            activeHistogramStats ? `LRA gate: ${formatNullableDb(activeHistogramStats.relativeThresholdDb)} (-70 / -20)` : "LRA gate: --",
+            `K adapt: ${formatNullableDb(kAdaptiveDb)} (${kAdaptiveDeltaDb >= 0 ? "+" : ""}${kAdaptiveDeltaDb.toFixed(1)} dB vs K3)`,
+            `K adapt LA: realtime preview unavailable; offline uses ${kEnvelopeLookAheadSec.toFixed(2)} s`,
+            "",
+            "NOTES",
+            "Realtime K integrated uses 400 ms K blocks and becomes valid after warm-up."
+          ].join("\n")
+        );
+      }
+    }
+
+    // ==============================
+    // RENDERING LAYOUT
+    // ==============================
+    function renderCanvas(bandValues, meters) {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+
+      const outerLeft = 68;
+      const outerRight = 20;
+      const top = 20;
+      const bottom = 86;
+      const plotW = w - outerLeft - outerRight;
+      const plotH = h - top - bottom;
+
+      const dividerGap = 18;
+      const derivedCount = 5;
+      const derivedBarW = 62;
+      const derivedGap = 16;
+      const fullHistogramGap = 0;
+      const fullHistogramW = derivedBarW;
+      const scopeGap = 18;
+      const scopeW = 280;
+      const derivedSectionW = (derivedCount - 1) * (derivedBarW + derivedGap) + derivedBarW;
+      const spectrumW = plotW - dividerGap - derivedSectionW - scopeGap - scopeW;
+
+      const spectrumLeft = outerLeft;
+      const spectrumRight = spectrumLeft + spectrumW;
+      const derivedLeft = spectrumRight + dividerGap;
+      const derivedRight = derivedLeft + derivedSectionW;
+      const scopeLeft = derivedRight + scopeGap;
+
+      drawGrid(spectrumLeft, top, plotW, plotH, displayMinDb, displayMaxDb);
+      drawSpectrumBars(bandValues, spectrumLeft, top, spectrumW, plotH, displayMinDb, displayMaxDb);
+      drawProgramSummary(spectrumLeft + 12, top + 12, Math.min(390, spectrumW - 24), meters);
+
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(spectrumRight + dividerGap / 2, top);
+      ctx.lineTo(spectrumRight + dividerGap / 2, top + plotH);
+      ctx.stroke();
+
+      const derivedBars = [
+        {
+          label: "Support",
+          color: "#8ef",
+          stroke: "#e8fbff",
+          instantDb: meters.supportDb,
+          shortDb: meters.supportShortDb,
+          bottom1: `3s ${meters.supportShortDb.toFixed(1)}`,
+          bottom2: ""
+        },
+        {
+          label: "Irrit.",
+          color: "#ffb347",
+          stroke: "#ffe2b5",
+          instantDb: meters.irritationDb,
+          shortDb: meters.irritationShortDb,
+          bottom1: `3s ${meters.irritationShortDb.toFixed(1)}`,
+          bottom2: ""
+        },
+        {
+          label: "Audio",
+          color: "#c7a2ff",
+          stroke: "#efd8ff",
+          instantDb: meters.audioDb,
+          shortDb: meters.audioShortDb,
+          bottom1: `3s ${meters.audioShortDb.toFixed(1)}`,
+          bottom2: ""
+        },
+        {
+          label: "Full",
+          color: "#ff6666",
+          stroke: "#ffd0d0",
+          instantDb: meters.fullDb,
+          shortDb: meters.fullShortDb,
+          bottom1: `3s ${meters.fullShortDb.toFixed(1)}`,
+          bottom2: `10s ${meters.fullLongExposureDb.toFixed(1)}`
+        },
+        {
+          label: "K",
+          color: "#66d9a8",
+          stroke: "#c8ffe8",
+          instantDb: meters.kWeightedDb,
+          shortDb: meters.kWeightedShortDb,
+          bottom1: `3s ${meters.kWeightedShortDb.toFixed(1)}`,
+          bottom2: meters.kRunningIntegratedStatus === "ready"
+            ? `K-int ${meters.kRunningIntegratedDb.toFixed(1)}`
+            : `warm ${meters.kRunningIntegratedTotalCount}/${meters.kRunningIntegratedMinBlocks}`
+        }
+      ];
+
+      for (let i = 0; i < derivedBars.length; i++) {
+        const x = derivedLeft + i * (derivedBarW + derivedGap);
+        const isKHistogramBar = derivedBars[i].label === "K";
+        drawDerivedBar(
+          x,
+          top,
+          derivedBarW,
+          plotH,
+          derivedBars[i],
+          displayMinDb,
+          displayMaxDb,
+          isKHistogramBar ? {
+            bins: meters.histogramBins,
+            minDb: meters.histogramMinDb,
+            maxDb: meters.histogramMaxDb,
+            currentDb: meters.kWeightedShortDb,
+            lraDb: meters.fullLraDb,
+            p10Db: meters.fullP10Db,
+            p95Db: meters.fullP95Db,
+            absoluteGateDb: meters.histogramAbsoluteGateDb,
+            relativeGateDb: meters.histogramRelativeGateDb,
+            gateOn: meters.histogramGateOn,
+            gateActive: meters.histogramGateActive,
+            gateFlash: meters.histogramGateFlash,
+            gateBlockRejectedNow: meters.histogramGateBlockRejectedNow,
+            runningIntegratedDb: meters.kRunningIntegratedDb,
+            runningIntegratedGateDb: meters.kRunningIntegratedGateDb,
+            runningIntegratedStatus: meters.kRunningIntegratedStatus,
+            runningIntegratedAcceptedCount: meters.kRunningIntegratedAcceptedCount,
+            runningIntegratedTotalCount: meters.kRunningIntegratedTotalCount,
+            runningIntegratedMinBlocks: meters.kRunningIntegratedMinBlocks,
+            stripGap: fullHistogramGap,
+            stripW: fullHistogramW
+          } : null
+        );
+      }
+
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(derivedRight + scopeGap / 2, top);
+      ctx.lineTo(derivedRight + scopeGap / 2, top + plotH);
+      ctx.stroke();
+
+      drawLevelScope(scopeLeft, top, scopeW, plotH, meters, displayMinDb, displayMaxDb);
+
+      ctx.fillStyle = "#ddd";
+      ctx.font = "14px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText(document.title, spectrumLeft, 15);
+    }
+
+    // ==============================
+    // TIME SCOPE RENDERING
+    // ==============================
+    function drawLevelScope(left, top, width, height, meters, minDb, maxDb) {
+      const history = Array.isArray(meters.levelScopeHistory) ? meters.levelScopeHistory : [];
+      const windowSec = meters.levelScopeWindowSec || 20;
+      const nowSec = history.length > 0 ? history[history.length - 1].t : performance.now() * 0.001;
+      const startSec = Number.isFinite(meters.scopeStartSec) ? meters.scopeStartSec : nowSec - windowSec;
+      const endSec = startSec + windowSec;
+
+      ctx.save();
+      ctx.fillStyle = "rgba(10, 10, 10, 0.32)";
+      ctx.fillRect(left, top, width, height);
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left, top, width, height);
+
+      // EN: Draw a 20 s scrolling scope using the same dB scale as the bars.
+      // EN: Labels are intentionally kept at the bottom so the active mid/top curves stay readable.
+      const drawCurve = (key, strokeStyle, lineWidth) => {
+        ctx.beginPath();
+        let started = false;
+        for (const item of history) {
+          const db = item[key];
+          if (!isFinite(db)) continue;
+          const x = left + clamp((item.t - startSec) / windowSec, 0, 1) * width;
+          const y = top + (1 - clamp((db - minDb) / (maxDb - minDb), 0, 1)) * height;
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      };
+
+      drawCurve("peak04Db", "rgba(255, 255, 255, 1.00)", 2.0);
+      drawCurve("rms3Db", "rgba(255, 210, 100, 0.96)", 2.2);
+      drawCurve("kWeightedMomentaryScopeDb", "rgba(120, 210, 255, 0.86)", 1.6);
+      drawCurve("kWeightedShortScopeDb", "rgba(102, 217, 168, 0.98)", 2.4);
+      drawCurve("kWeightedLongScopeDb", "rgba(102, 217, 168, 0.42)", 1.4);
+      drawCurve("kAdaptiveScopeDb", "rgba(255, 120, 220, 0.96)", 2.0);
+      drawCurve("kAdaptiveLookAheadScopeDb", "rgba(255, 255, 255, 0.55)", 1.1);
+
+      const panelH = 132;
+      const panelY = top + height - panelH - 8;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+      ctx.fillRect(left + 6, panelY, width - 12, panelH);
+
+      const labelX = left + 14;
+      const valueX = left + width - 14;
+      let yText = panelY + 24;
+      const rowStep = 19;
+
+      ctx.textAlign = "left";
+      ctx.font = "bold 16px Arial";
+      ctx.fillStyle = "#ddd";
+      ctx.fillText("20 s scope", labelX, yText);
+      yText += 23;
+
+      const drawMetricRow = (label, value, color) => {
+        ctx.font = "14px Arial";
+        ctx.textAlign = "left";
+        ctx.fillStyle = color;
+        ctx.fillText(label, labelX, yText);
+        ctx.font = "bold 15px Arial";
+        ctx.textAlign = "right";
+        ctx.fillText(Number.isFinite(value) ? value.toFixed(1) : "--", valueX, yText);
+        yText += rowStep;
+      };
+
+      drawMetricRow("Peak 0.4s", meters.peak04Db, "rgba(255, 255, 255, 0.90)");
+      drawMetricRow("RMS 3s", meters.rms3Db, "rgba(255, 210, 100, 0.96)");
+      drawMetricRow("K 0.4s", meters.kWeightedMomentaryScopeDb, "rgba(120, 210, 255, 0.86)");
+      drawMetricRow("K 3s", meters.kWeightedShortScopeDb, "rgba(102, 217, 168, 0.98)");
+      drawMetricRow("K adapt", meters.kAdaptiveScopeDb, "rgba(255, 120, 220, 0.96)");
+
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#aaa";
+      ctx.font = "12px Arial";
+      if (Number.isFinite(meters.scopeStartSec)) {
+        ctx.textAlign = "left";
+        ctx.fillText(formatTimeSec(startSec), left, top + height + 20);
+        ctx.textAlign = "right";
+        ctx.fillText(formatTimeSec(endSec), left + width, top + height + 20);
+      } else {
+        ctx.fillText("-20 s", left + 42, top + height + 20);
+        ctx.fillText("now", left + width, top + height + 20);
+      }
+
+      ctx.restore();
+    }
+
+    function drawProgramSummary(left, top, width, meters) {
+      if (width < 220) return;
+      const panelH = 94;
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+      ctx.fillRect(left, top, width, panelH);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.strokeRect(left, top, width, panelH);
+
+      const x1 = left + 12;
+      const x2 = left + width * 0.50;
+      const y1 = top + 23;
+      const y2 = top + 53;
+      const y3 = top + 76;
+
+      ctx.textAlign = "left";
+      ctx.font = "bold 16px Arial";
+      ctx.fillStyle = "#ddd";
+      ctx.fillText("Program", x1, y1);
+
+      ctx.font = "bold 20px Arial";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(Number.isFinite(meters.fullLraDb) ? `LRA ${meters.fullLraDb.toFixed(1)}` : "LRA --", x1, y2);
+
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "#ffd166";
+      ctx.fillText(Number.isFinite(meters.fullP10Db) ? `p10 ${meters.fullP10Db.toFixed(1)}` : "p10 --", x1, y3);
+      ctx.fillStyle = "#06d6a0";
+      ctx.fillText(Number.isFinite(meters.fullP95Db) ? `p95 ${meters.fullP95Db.toFixed(1)}` : "p95 --", x1 + 90, y3);
+
+      ctx.font = "bold 20px Arial";
+      ctx.fillStyle = "#c8ffe8";
+      const kText = meters.kRunningIntegratedStatus === "ready" && Number.isFinite(meters.kRunningIntegratedDb)
+        ? `K-int ${meters.kRunningIntegratedDb.toFixed(1)}`
+        : `K warm ${meters.kRunningIntegratedTotalCount}/${meters.kRunningIntegratedMinBlocks}`;
+      ctx.fillText(kText, x2, y2);
+
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "#aaa";
+      const kGate = Number.isFinite(meters.kRunningIntegratedGateDb) ? `gate ${meters.kRunningIntegratedGateDb.toFixed(1)}` : "gate --";
+      const lraGate = Number.isFinite(meters.fullRelativeGateDb) ? `LRA gate ${meters.fullRelativeGateDb.toFixed(1)}` : "LRA gate --";
+      ctx.fillText(kGate, x2, y3);
+      ctx.fillText(lraGate, x2, y1);
+
+      ctx.restore();
+    }
+
+    // ==============================
+    // BAR / GRID / HISTOGRAM RENDERING
+    // ==============================
+    function drawGrid(left, top, plotW, plotH, minDb, maxDb) {
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 1;
+      const ticks = buildTicksForRange(minDb, maxDb);
+
+      for (const db of ticks) {
+        const norm = clamp((db - minDb) / (maxDb - minDb), 0, 1);
+        const y = top + (1 - norm) * plotH;
+
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + plotW, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#b3b3b3";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "right";
+        ctx.fillText(`${db.toFixed(0)}`, left - 8, y + 4);
+      }
+
+      ctx.strokeStyle = "#666";
+      ctx.strokeRect(left, top, plotW, plotH);
+    }
+
+    function drawSpectrumBars(bandValues, left, top, plotW, plotH, minDb, maxDb) {
+      const barGap = 4;
+      const barWidth = (plotW - barGap * (bandValues.length - 1)) / bandValues.length;
+
+      for (let i = 0; i < bandValues.length; i++) {
+        const band = bandValues[i];
+        const x = left + i * (barWidth + barGap);
+
+        const norm = clamp((band.dbCal - minDb) / (maxDb - minDb), 0, 1);
+        const barHeight = norm * plotH;
+        const y = top + (plotH - barHeight);
+
+        const isSupportBand = band.centerFreq >= 20 && band.centerFreq <= 63;
+        const isIrritationBand = band.centerFreq === 80 || band.centerFreq === 100;
+        const isAudioBand = band.centerFreq >= 125;
+
+        ctx.save();
+        ctx.globalAlpha = 0.38;
+        ctx.fillStyle = isSupportBand ? "#8ef" : (isIrritationBand ? "#ffb347" : (isAudioBand ? "#c7a2ff" : "#7cf"));
+        ctx.fillRect(x, y, barWidth, barHeight);
+        ctx.restore();
+
+        ctx.strokeStyle = isSupportBand ? "#e8fbff" : (isIrritationBand ? "#ffe2b5" : (isAudioBand ? "#efd8ff" : "#bfe3ff"));
+        ctx.strokeRect(x, y, barWidth, barHeight);
+
+        ctx.save();
+        ctx.fillStyle = "#ddd";
+        ctx.font = "13px Arial";
+        ctx.textAlign = "center";
+        ctx.translate(x + barWidth / 2, top + plotH + 22);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(formatFreqLabel(band.centerFreq), 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function drawDerivedBar(x, top, width, plotH, meter, minDb, maxDb, histogramStrip = null) {
+      const instantNorm = clamp((meter.instantDb - minDb) / (maxDb - minDb), 0, 1);
+      const instantHeight = instantNorm * plotH;
+      const y = top + (plotH - instantHeight);
+
+      ctx.save();
+      ctx.globalAlpha = 0.42;
+      ctx.fillStyle = meter.color;
+      ctx.fillRect(x, y, width, instantHeight);
+      ctx.restore();
+
+      ctx.strokeStyle = meter.stroke;
+      ctx.strokeRect(x, y, width, instantHeight);
+
+      const shortNorm = clamp((meter.shortDb - minDb) / (maxDb - minDb), 0, 1);
+      const yShort = top + (1 - shortNorm) * plotH;
+
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 3, yShort);
+      ctx.lineTo(x + width - 3, yShort);
+      ctx.stroke();
+
+      // EN: Show the 3 s value just above the white marker line.
+      ctx.fillStyle = meter.stroke;
+      ctx.font = "13px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`${meter.shortDb.toFixed(1)}`, x + width / 2, Math.max(top + 10, yShort - 6));
+
+      if (histogramStrip && Array.isArray(histogramStrip.bins) && histogramStrip.bins.length > 0) {
+        drawVerticalHistogramStrip(
+          x + histogramStrip.stripGap,
+          top,
+          histogramStrip.stripW,
+          plotH,
+          histogramStrip.bins,
+          histogramStrip.minDb,
+          histogramStrip.maxDb,
+          histogramStrip.currentDb,
+          histogramStrip.lraDb,
+          histogramStrip.p10Db,
+          histogramStrip.p95Db,
+          histogramStrip.absoluteGateDb,
+          histogramStrip.relativeGateDb,
+          histogramStrip.gateOn,
+          histogramStrip.gateActive,
+          histogramStrip.gateFlash,
+          histogramStrip.gateBlockRejectedNow,
+          histogramStrip.runningIntegratedDb,
+          histogramStrip.runningIntegratedGateDb,
+          histogramStrip.runningIntegratedStatus,
+          histogramStrip.runningIntegratedAcceptedCount,
+          histogramStrip.runningIntegratedTotalCount,
+          histogramStrip.runningIntegratedMinBlocks
+        );
+      }
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "15px Arial";
+      ctx.fillText(meter.label, x + width / 2, top + plotH + 20);
+
+      ctx.fillStyle = "#aaa";
+      ctx.font = "13px Arial";
+      ctx.fillText(meter.bottom1, x + width / 2, top + plotH + 40);
+      if (meter.bottom2) {
+        ctx.fillText(meter.bottom2, x + width / 2, top + plotH + 58);
+      }
+    }
+
+
+    function getHistogramInfoLayout(left, top, width, canvasWidth) {
+      // EN: Larger text panel for the compact histogram/LRA area.
+      // EN: The right edge is anchored to the histogram strip so the panel stays inside the canvas.
+      const margin = 8;
+      const panelWidth = 250;
+      const right = Math.min(canvasWidth - margin, left + width);
+      const x = Math.max(margin, right - panelWidth);
+
+      return {
+        x,
+        right,
+        panelWidth: right - x,
+        labelX: x + 10,
+        valueX: right - 10,
+        row1Y: top + 24,
+        row2Y: top + 50,
+        row3Y: top + 72,
+        row4Y: top + 96,
+        row5Y: top + 120
+      };
+    }
+
+    function drawVerticalHistogramStrip(left, top, width, height, bins, minDb, maxDb, currentDb, lraDb, p10Db, p95Db, absoluteGateDb, relativeGateDb, gateOn, gateActive, gateFlash, gateBlockRejectedNow, runningIntegratedDb = null, runningIntegratedGateDb = null, runningIntegratedStatus = "warming up", runningIntegratedAcceptedCount = 0, runningIntegratedTotalCount = 0, runningIntegratedMinBlocks = 0) {
+      // EN: Draw a compact vertical histogram strip using the same dB scale as the Full meter.
+      // EN: Only flash on actual rejection; no persistent active-state shading.
+      ctx.fillStyle = gateFlash ? "rgba(80, 0, 0, 0.45)" : "rgba(5, 5, 5, 0.18)";
+      ctx.fillRect(left, top, width, height);
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left, top, width, height);
+
+      const maxBin = Math.max(1, ...bins);
+      // EN: bins[] is ordered from low dB to high dB.
+      // EN: Draw from bottom to top so the histogram matches the vertical dB axis.
+      for (let i = 0; i < bins.length; i++) {
+        const binValue = bins[i];
+        const drawIndex = bins.length - 1 - i;
+        const y0 = top + (drawIndex / bins.length) * height;
+        const y1 = top + ((drawIndex + 1) / bins.length) * height;
+        const barH = Math.max(1, y1 - y0 - 1);
+        const spikeW = Math.max(1, (binValue / maxBin) * (width - 2));
+
+        ctx.fillStyle = gateFlash ? "rgba(255, 51, 51, 0.85)" : (gateOn ? "rgba(230, 230, 230, 0.55)" : "rgba(109, 140, 255, 0.55)");
+        ctx.fillRect(left + 1, y0 + 0.5, spikeW, barH);
+      }
+
+      const tickStep = 10;
+      ctx.strokeStyle = "#3f3f3f";
+      ctx.lineWidth = 1;
+      for (let db = Math.ceil(minDb / tickStep) * tickStep; db <= maxDb; db += tickStep) {
+        const yTick = top + (1 - (db - minDb) / (maxDb - minDb)) * height;
+        ctx.beginPath();
+        ctx.moveTo(left, yTick);
+        ctx.lineTo(left + width, yTick);
+        ctx.stroke();
+      }
+
+      if (Number.isFinite(absoluteGateDb)) {
+        const yAbsoluteGate = top + (1 - (clamp(absoluteGateDb, minDb, maxDb) - minDb) / (maxDb - minDb)) * height;
+        ctx.strokeStyle = "#666";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(left, yAbsoluteGate);
+        ctx.lineTo(left + width, yAbsoluteGate);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      if (Number.isFinite(relativeGateDb)) {
+        const yRelativeGate = top + (1 - (clamp(relativeGateDb, minDb, maxDb) - minDb) / (maxDb - minDb)) * height;
+        ctx.strokeStyle = gateActive ? "#ff9999" : "#999";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(left, yRelativeGate);
+        ctx.lineTo(left + width, yRelativeGate);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      if (Number.isFinite(p10Db)) {
+        const yP10 = top + (1 - (clamp(p10Db, minDb, maxDb) - minDb) / (maxDb - minDb)) * height;
+        ctx.strokeStyle = "#ffd166";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(left, yP10);
+        ctx.lineTo(left + width, yP10);
+        ctx.stroke();
+      }
+
+      if (Number.isFinite(p95Db)) {
+        const yP95 = top + (1 - (clamp(p95Db, minDb, maxDb) - minDb) / (maxDb - minDb)) * height;
+        ctx.strokeStyle = "#06d6a0";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(left, yP95);
+        ctx.lineTo(left + width, yP95);
+        ctx.stroke();
+      }
+
+      if (Number.isFinite(currentDb)) {
+        const yCurrent = top + (1 - (clamp(currentDb, minDb, maxDb) - minDb) / (maxDb - minDb)) * height;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(left, yCurrent);
+        ctx.lineTo(left + width, yCurrent);
+        ctx.stroke();
+      }
+
+      const historySec = kWeightedShortTermRawHistory.length / loudnessUpdateHz;
+
+      // EN: Main LRA and K-integrated text is drawn in drawProgramSummary() above the spectrum.
+      // EN: Keep the histogram strip mostly graphical so it does not cover the derived bars.
+      ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
+      ctx.fillRect(left + 4, top + 6, width - 8, 48);
+      ctx.textAlign = "center";
+      ctx.font = "bold 13px Arial";
+      ctx.fillStyle = gateFlash ? "#ff3333" : "#ddd";
+      ctx.fillText(gateFlash ? "REJECT" : `${historySec.toFixed(0)} s`, left + width / 2, top + 23);
+      ctx.font = "12px Arial";
+      ctx.fillStyle = "#aaa";
+      ctx.fillText(Number.isFinite(lraDb) ? `LRA ${lraDb.toFixed(1)}` : "LRA --", left + width / 2, top + 42);
+    }
+
+
+    function buildTicksForRange(minDb, maxDb) {
+      const ticks = [];
+      const step = 10;
+      const start = Math.ceil(minDb / step) * step;
+
+      for (let db = start; db <= maxDb; db += step) {
+        ticks.push(db);
+      }
+
+      if (!ticks.includes(minDb)) ticks.unshift(minDb);
+      if (!ticks.includes(maxDb)) ticks.push(maxDb);
+      return ticks;
+    }
+
+    function formatFreqLabel(freq) {
+      if (freq >= 1000) {
+        const k = freq / 1000;
+        return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+      }
+      return `${freq}`;
+    }
+  </script>
+</body>
+</html>
