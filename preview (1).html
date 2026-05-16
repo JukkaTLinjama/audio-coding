@@ -103,15 +103,6 @@
         align-items: start;
     }
 
-    .demo-card {
-        transition: opacity 220ms ease-out, transform 220ms ease-out;
-    }
-
-    .demo-card.is-entering {
-        opacity: 0;
-        transform: translateY(10px) scale(0.985);
-    }
-
     /* Clickable thumbnail image (left column): opens a static preview modal. */
     .demo-thumb-button {
         display: block;
@@ -204,24 +195,15 @@
         position: fixed;
         inset: 0;
         z-index: 1000;
-        background: rgba(0, 0, 0, 0);
+        background: rgba(0, 0, 0, 0.78);
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 1rem;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 180ms ease-out, background 180ms ease-out;
     }
 
     .image-preview-modal.hidden {
         display: none;
-    }
-
-    .image-preview-modal.is-open {
-        background: rgba(0, 0, 0, 0.78);
-        opacity: 1;
-        pointer-events: auto;
     }
 
     .image-preview-window {
@@ -234,13 +216,13 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        transform: scale(0.72) translateY(14px);
+        transform: scale(0.86);
         opacity: 0;
-        transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease-out;
+        transition: transform 180ms ease-out, opacity 180ms ease-out;
     }
 
-    .image-preview-modal.is-open .image-preview-window {
-        transform: scale(1) translateY(0);
+    .image-preview-modal:not(.hidden) .image-preview-window {
+        transform: scale(1);
         opacity: 1;
     }
 
@@ -335,11 +317,9 @@
         <p class="site-subtitle">
             Audio, vibroacoustic and visual interaction prototypes built with browser technologies. Tested with desktop and mobile Chrome browser.
         </p>
-    <p class="site-meta">
-        Updated: 2026-05-16 ·
-        Created by <a href="https://github.com/JukkaTLinjama" target="_blank" rel="noopener">Jukka Linjama</a> ·
-        <a href="https://jukkatlinjama.github.io/audio-coding/" target="_blank" rel="noopener">Demo showroom</a>
-    </p>
+        <p class="site-meta">
+            Updated: 2026-05-15 · <a href="https://jukkatlinjama.github.io" target="_blank" rel="noopener">GitHub Pages</a>
+        </p>
     </header>
 
     <div id="demo-list"></div>
@@ -379,22 +359,6 @@
     "title": "Audio Coding Demos",
     "demos": [
         {
-            "id": "Tactile Loudness analyser",
-            "title": "Tactile Loudness Analyser v6.0",
-            "path": "./Vibroacoustic/loudness-meters/tactile-loudness-meter-v6.0.html",
-            "thumb": "assets/Tactile-loudness-v6.0.png",
-            "status": "WIP",
-            "date": "2026-05-15",
-            "description": "Creation of a tactile loudness analyser using Web Audio API. It provides real-time visual feedback on the perceived loudness of audio input, with a focus on tactile perception.",
-            "tags": [
-                "analyzer",
-                "web-audio",
-                "vibrotactile",
-                "loudness"
-            ],
-            "category": "audio"
-        },
-        {
             "id": "fish school v11",
             "title": "simulation of fish school v11",
             "path": "./parvisimul/kalat-v11.3.html",
@@ -431,7 +395,7 @@
             "thumb": "assets/bubble-gen-v6.png",
             "status": "WIP",
             "date": "2026-03-28",
-            "description": "Bubble sound generator w API for the Fish School simulation. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
+            "description": "Bubble sound generator w API. Simulates bubble formation and bursting with adjustable parameters for size, frequency, and intensity.",
             "tags": [
                 "bubble sound synthesis",
                 "granular synthesis",
@@ -459,7 +423,7 @@
             "path": "https://jukkatlinjama.github.io/timescale_dev/",
             "thumb": "assets/timeline_v49.9.png",
             "status": "WIP",
-            "date": "2026-01-13",
+            "date": "2026-05-13",
             "description": "A vertical, zoomable logarithmic timeline of key events from the Big Bang to the present (2026).",
             "tags": [
                 "visualisation",
@@ -589,17 +553,8 @@
             button.textContent = `Show more (${hiddenDemos.length})`;
 
             button.addEventListener('click', () => {
-                hiddenDemos.forEach((demo, index) => {
-                    const card = createDemoCard(demo);
-                    card.classList.add('is-entering');
-                    ul.appendChild(card);
-
-                    // Animate each newly added card after it has entered the DOM.
-                    requestAnimationFrame(() => {
-                        setTimeout(() => {
-                            card.classList.remove('is-entering');
-                        }, index * 45);
-                    });
+                hiddenDemos.forEach(demo => {
+                    ul.appendChild(createDemoCard(demo));
                 });
 
                 button.remove();
@@ -629,17 +584,13 @@
         const closeButton = document.getElementById('image-preview-close-button');
 
         function closePreview() {
-            modal.classList.remove('is-open');
+            modal.classList.add('hidden');
             modal.setAttribute('aria-hidden', 'true');
 
-            window.setTimeout(() => {
-                modal.classList.add('hidden');
-
-                // Clear image state after closing to avoid keeping large previews active.
-                image.src = '';
-                image.alt = 'Demo preview image';
-                openLink.href = '#';
-            }, 220);
+            // Clear image state after closing to avoid keeping large previews active.
+            image.src = '';
+            image.alt = 'Demo preview image';
+            openLink.href = '#';
         }
 
         document.addEventListener('click', event => {
@@ -653,11 +604,6 @@
 
             modal.classList.remove('hidden');
             modal.setAttribute('aria-hidden', 'false');
-
-            // Start the scale animation on the next frame so the browser sees the closed state first.
-            requestAnimationFrame(() => {
-                modal.classList.add('is-open');
-            });
         });
 
         closeButton.addEventListener('click', closePreview);
