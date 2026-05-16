@@ -1,0 +1,44 @@
+{
+    "title": "Audio Coding Demos",
+    "demos": [
+        {
+            "id": "fish school v11",
+            "title": "simulation of fish school v11",
+            "path": "./parvisimul/kalat-v11.3.html",
+            "thumb": "assets/Fish-v5.png",
+            "status": "WIP",
+            "description": "fish simul v. sim speed control & fish 0 kiss.",
+            "tags": [
+                "3D",
+                "simulation",
+                "swarmn behavior"
+            ]
+        },
+        {
+            "id": "vibro-keyboard-3",
+            "title": "Vibroacoustic keyboard v3",
+            "path": "./Vibroacoustic/vibro-keyboard-v2.9.html",
+            "thumb": "assets/vibro-keyboard-2.4.png",
+            "status": "WIP",
+            "description": "Experimental vibroacoustic keyboard. Low-frequency tones and beating for tactile perception. Added looping rec/play functionality.",
+            "tags": [
+                "vibrotactile", "lf",
+                "web-audio"
+            ]
+        },
+ 
+        {
+            "id": "timescales visualisation 2025",
+            "title": "History timescale visualisation v50.2",
+            "path": "https://jukkatlinjama.github.io/timescale_dev/",
+            "thumb": "assets/timeline_v49.9.png",
+            "status": "WIP",
+            "description": "A vertical, zoomable logarithmic timeline of key events from the Big Bang to the present (2026).",
+            "tags": [
+                "visualisation",
+                "history event themes",
+                "json database"
+            ]
+        }
+    ]
+}
